@@ -11,12 +11,12 @@ app.prepare().then(() => {
   createServer((req, res) => {
     if (req.url === "/health" || req.url === "/app/health") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify({ ok: true, app: "pinata-chef", route: "/app" }));
+      res.end(JSON.stringify({ ok: true, app: "pinata-voice-cooking-companion", route: "/app" }));
       return;
     }
 
     handle(req, res);
   }).listen(port, host, () => {
-    console.log(`pinata-chef listening on ${host}:${port}`);
+    console.log(`pinata-voice-cooking-companion listening on ${host}:${port}`);
   });
 });

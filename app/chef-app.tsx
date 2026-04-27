@@ -105,7 +105,7 @@ export default function ChefApp() {
             <span>Pinata agent template</span>
             <span className="raid-stamp" aria-label="by RaidGuild">by RaidGuild</span>
           </p>
-          <h1>Pinata Chef</h1>
+          <h1>Pinata Voice Cooking Companion</h1>
           <p className="lede">
             Browse saved recipes, scan ingredients and notes, and search your kitchen memory by
             mood, effort, ingredient, or theme.
@@ -273,7 +273,7 @@ export default function ChefApp() {
         </aside>
       </section>
       <footer className="footer">
-        Built by RaidGuild Cohort. Free and open source.
+        Built by RaidGuild. Free and open source.
       </footer>
     </main>
   );

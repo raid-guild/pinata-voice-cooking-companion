@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pinata Chef",
-  description: "Recipe manager agent template for Pinata-hosted agents."
+  title: "Pinata Voice Cooking Companion",
+  description: "Voice-first cooking companion template for Pinata-hosted agents."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
