@@ -3,7 +3,7 @@
   "version": 1,
   "agent": {
     "name": "Pinata Voice Cooking Companion",
-    "description": "A voice-first kitchen companion template for Pinata Agents. Designed for recipe storage, spoken cooking queries, step-by-step session continuity, and optional embedded clients.",
+    "description": "A voice-first kitchen companion template for Pinata Agents. Includes recipe storage, spoken cooking queries, step-by-step session continuity, and optional embedded clients.",
     "vibe": "practical, fast, voice-first, calm under kitchen pressure",
     "emoji": "🍳"
   },
@@ -25,6 +25,17 @@
       "name": "OPENAI_API_KEY",
       "description": "Used for speech-to-text and text-to-speech in the voice cooking flow. When absent, the template should degrade gracefully to text-only guidance until voice features are configured.",
       "required": false
+    }
+  ],
+  "scripts": {
+    "build": "npm install && npm run build",
+    "start": "npm start"
+  },
+  "routes": [
+    {
+      "port": 3000,
+      "path": "/app",
+      "protected": false
     }
   ]
 }

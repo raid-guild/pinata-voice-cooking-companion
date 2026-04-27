@@ -2,82 +2,69 @@
 
 A Pinata / OpenClaw template for building a **voice-first cooking companion**.
 
-This template is being shaped around a focused interaction model:
+This template centers a practical kitchen interaction loop:
 
 - save and search recipes
-- keep lightweight cooking session state
+- keep lightweight cooking session state in SQLite
 - accept spoken cooking queries
-- answer with structured JSON plus optional audio
+- answer with structured JSON plus optional generated audio
 - support embedded clients such as ESP32-based kitchen devices
-- expose an optional hosted `/app` route for recipe browsing and debugging
+- expose a hosted `/app` route for recipe browsing and debugging
 
 ## Status
 
-This repository is starting from the modern Pinata template shape and is being built up in reviewable PRs.
+This repository is being built in reviewable PRs.
 
-### Planned PR sequence
+### PR sequence
 
-1. **Template scaffold**
-   - manifest
-   - workspace files
-   - README
-   - template positioning
-2. **Core voice cooking backend**
-   - SQLite persistence
-   - `/query`
-   - `/query-audio`
-   - generated audio serving
-   - audio cleanup policy
+1. **Template scaffold** ✅
+2. **Core voice cooking backend** ← current phase
 3. **Docs and polish**
-   - architecture writeup
-   - onboarding refinement
-   - naming, metadata, and deployment polish
 
-## Intended capabilities
+## Current implementation in this PR phase
 
-The target implementation for this template includes:
+This template now includes:
 
-- SQLite-backed recipe storage
-- persistent `voice_sessions` state
-- server-side speech-to-text via OpenAI
-- server-side text-to-speech via OpenAI
-- temporary generated audio files with scheduled cleanup
-- graceful fallback to text-only guidance when `OPENAI_API_KEY` is not configured
-- a hosted recipe explorer at `/app`
+- Next.js app router project
+- SQLite-backed recipe, food-event, and voice-session persistence
+- `/query` for JSON text / next-step requests
+- `/query-audio` for multipart spoken queries and JSON next-step requests
+- generated MP3 serving via `/app/api/audio/[name]`
+- scheduled cleanup script for generated audio artifacts
+- architecture writeup in `workspace/AUDIO_QUERY_ARCHITECTURE.md`
 
-## Why this is a separate template
+## Voice query model
 
-This repo is **not** intended to be a direct fork of Pinata Chef as a marketplace artifact. Instead, it starts from Pinata's current template conventions and ports over the cooking-specific voice architecture intentionally.
+The cooking flow uses a narrow persistent session model rather than a full chat transcript.
 
-That keeps the template:
+Session state tracks:
+- active recipe
+- current ingredient/step index
+- phase (`ingredients` vs `steps`)
+- pending follow-up prompt state
 
-- aligned with the current Pinata starter shape
-- easier to review and maintain
-- easier to position as a dedicated voice-first cooking companion
+This makes the template well-suited to hands-free or embedded cooking experiences.
 
-## Deployment model
+## STT / TTS
 
-This template is meant for Pinata Agents / OpenClaw-style deployments.
+The current implementation uses OpenAI for:
+- speech-to-text
+- text-to-speech
 
-The final template is expected to use:
+When `OPENAI_API_KEY` is absent, the intended behavior is to degrade gracefully to text-only guidance where possible.
 
-- workspace identity files under `workspace/`
-- an optional hosted app route
-- OpenAI secrets for STT/TTS
-- recipe and session persistence inside the workspace
+## Audio retention
 
-## Current repository contents
+Generated audio files are temporary artifacts stored under `workspace/generated-audio` and cleaned up by a scheduled script.
 
-This scaffold PR intentionally keeps the repo small:
+They should be treated as temporary fetch targets, not durable user data.
 
-- `manifest.json`
-- `workspace/BOOTSTRAP.md`
-- `workspace/SOUL.md`
-- `workspace/AGENTS.md`
-- `workspace/IDENTITY.md`
-- `workspace/USER.md`
-- `workspace/TOOLS.md`
-- `workspace/HEARTBEAT.md`
-- `workspace/data/README.md`
+## Main files to inspect
 
-Implementation code lands in follow-up PRs.
+- `app/query/route.ts`
+- `app/query-audio/route.ts`
+- `app/api/audio/[name]/route.ts`
+- `lib/audio-query.ts`
+- `lib/recipes.ts`
+- `workspace/AUDIO_QUERY_ARCHITECTURE.md`
+- `workspace/scripts/prune-generated-audio.sh`

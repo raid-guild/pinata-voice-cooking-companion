@@ -6,3 +6,5 @@ dist
 coverage
 workspace/generated-audio
 .DS_Store
+
+*.tsbuildinfo
