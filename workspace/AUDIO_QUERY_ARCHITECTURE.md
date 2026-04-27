@@ -1,6 +1,6 @@
 # Audio Query Architecture (Current Version)
 
-This document describes the exact architecture and implementation currently used for the Pinata Chef audio query flow in this version of the app.
+This document describes the exact architecture and implementation currently used for the Pinata Voice Cooking Companion audio query flow in this version of the app.
 
 It is intended as a handoff note for other agents and developers.
 
