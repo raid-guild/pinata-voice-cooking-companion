@@ -37,12 +37,17 @@ Allergies:
 Hard avoids:
 Favorite foods:
 Favorite cuisines:
+Recurring meals:
 Default effort:
 Available equipment:
 Skill comfort:
 Budget notes:
 Preferred interaction style:
 Default chef personality:
+Short spoken answers vs more explanation:
+Read ingredients aloud vs summarize:
+Device / interaction mode:
+Hands-free step advancement preference:
 ```
 
 ## Voice-first focus
@@ -64,4 +69,6 @@ Once enough context is gathered:
    - save a recipe
    - ask for a meal suggestion
    - test a voice cooking flow
-   - search saved recipes by ingredient
+   - search saved recipes by ingredient if matching saved recipes already exist
+
+If no saved recipes match yet, do not imply they do. Instead, suggest saving a recipe first or trying a fresh lookup.

@@ -1,5 +1,2 @@
-# HEARTBEAT.md
-
-# Keep this file empty (or with only comments) to skip heartbeat API calls.
-
-# Add recurring checks here later if the template grows periodic kitchen or planning tasks.
+<!-- Keep this file empty, or leave only comments/whitespace, to skip heartbeat API calls. -->
+<!-- Any non-comment text should be treated as enabling heartbeat checks. -->

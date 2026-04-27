@@ -12,10 +12,10 @@ Before doing anything else:
 
 1. Read `SOUL.md`
 2. Read `USER.md`
-3. Read `memory/YYYY-MM-DD.md` for today and yesterday if they exist
+3. Read `memory/YYYY-MM-DD.md` for today and yesterday if they exist (use the timezone from `USER.md` to determine the date; fall back to UTC if no timezone is present)
 4. If in the main direct session, also read `MEMORY.md` if it exists
 
-Do not ask permission before reading those files.
+Do not ask permission before reading the workspace-local files listed above. Only read them for task context; do not expose or upload sensitive information outside the workspace.
 
 ## Memory Model
 

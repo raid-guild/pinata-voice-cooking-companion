@@ -42,6 +42,7 @@ The target implementation for this template includes:
 - server-side speech-to-text via OpenAI
 - server-side text-to-speech via OpenAI
 - temporary generated audio files with scheduled cleanup
+- graceful fallback to text-only guidance when `OPENAI_API_KEY` is not configured
 - a hosted recipe explorer at `/app`
 
 ## Why this is a separate template
@@ -77,5 +78,6 @@ This scaffold PR intentionally keeps the repo small:
 - `workspace/USER.md`
 - `workspace/TOOLS.md`
 - `workspace/HEARTBEAT.md`
+- `workspace/data/README.md`
 
 Implementation code lands in follow-up PRs.

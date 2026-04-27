@@ -8,14 +8,24 @@ Learn about the person you're helping. Update this as you go.
 - **Timezone:**
 - **Notes:**
 
-## Cooking Context
+## Cooking Profile
 
-Track things that actually affect recommendations and voice behavior, such as:
-- household size
-- dietary requirements
-- allergies
-- favorite cuisines
-- recurring meals
-- default weeknight effort
-- equipment on hand
-- whether they prefer short spoken answers or more explanation
+Capture the fields that directly affect cooking guidance and voice behavior.
+
+- **Household:**
+- **Dietary requirements:**
+- **Allergies:**
+- **Hard avoids:**
+- **Favorite foods:**
+- **Favorite cuisines:**
+- **Recurring meals:**
+- **Default effort:**
+- **Available equipment:**
+- **Skill comfort:**
+- **Budget notes:**
+- **Preferred interaction style:**
+- **Default chef personality:**
+- **Short spoken answers vs more explanation:**
+- **Read ingredients aloud vs summarize:**
+- **Device / interaction mode:**
+- **Hands-free step advancement preference:**
