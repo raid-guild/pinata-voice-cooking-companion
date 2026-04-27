@@ -1,0 +1,8 @@
+.idea
+.claude
+node_modules
+.next
+dist
+coverage
+workspace/generated-audio
+.DS_Store
