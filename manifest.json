@@ -1,0 +1,46 @@
+{
+  "$schema": "https://agents.pinata.cloud/schemas/manifest.v1.json",
+  "version": 1,
+  "agent": {
+    "name": "Pinata Voice Cooking Companion",
+    "description": "A voice-first kitchen companion template for Pinata Agents. Designed for recipe storage, spoken cooking queries, step-by-step session continuity, and optional embedded clients.",
+    "vibe": "practical, fast, voice-first, calm under kitchen pressure",
+    "emoji": "🍳"
+  },
+  "template": {
+    "slug": "pinata-voice-cooking-companion",
+    "category": "general",
+    "tags": [
+      "pinata",
+      "openclaw",
+      "voice",
+      "cooking",
+      "recipes",
+      "kitchen"
+    ],
+    "partnerName": "Raid Guild"
+  },
+  "_docs": {
+    "_about": "This section documents available manifest.json options. Remove this _docs block before submitting the final marketplace template.",
+    "version": "Required. Always 1.",
+    "agent.name": "Display name for the agent.",
+    "agent.description": "Human-readable description shown in the dashboard.",
+    "agent.vibe": "Short tagline shown under the agent name.",
+    "agent.emoji": "Emoji icon for the agent.",
+    "template.slug": "Lowercase, hyphenated template identifier.",
+    "template.category": "Template category used in listings.",
+    "template.tags": "Search tags for discovery.",
+    "template.partnerName": "Author or organization name.",
+    "secrets": "Array of secrets the template needs. Values are stored outside the manifest.",
+    "scripts": "Optional lifecycle hooks for build/start once the web app lands.",
+    "routes": "Optional public or protected routes once the web app lands.",
+    "tasks": "Optional scheduled tasks once recurring jobs are part of the template."
+  },
+  "secrets": [
+    {
+      "name": "OPENAI_API_KEY",
+      "description": "Used for speech-to-text and text-to-speech in the voice cooking flow.",
+      "required": false
+    }
+  ]
+}
