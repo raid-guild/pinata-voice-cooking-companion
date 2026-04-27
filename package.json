@@ -1,0 +1,31 @@
+{
+  "name": "pinata-voice-cooking-companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev --hostname 0.0.0.0 --port 3000",
+    "start": "pm2-runtime start ecosystem.config.cjs",
+    "start:web": "node server.js",
+    "start:daemon": "pm2 start ecosystem.config.cjs",
+    "pm2:reload": "pm2 reload ecosystem.config.cjs --update-env",
+    "pm2:stop": "pm2 delete pinata-voice-cooking-companion",
+    "pm2:logs": "pm2 logs pinata-voice-cooking-companion --lines 100",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "next": "^15.3.1",
+    "pm2": "^6.0.8",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "22.19.17",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "^19.1.2",
+    "typescript": "5.9.3"
+  }
+}
