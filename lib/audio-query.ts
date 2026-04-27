@@ -70,7 +70,7 @@ function recipeTokenVariants(title: string): string[] {
 }
 
 function buildSessionRecipeId(recipe: Recipe): string {
-  return slugify(recipe.title) || String(recipe.id);
+  return `${slugify(recipe.title) || "recipe"}-${recipe.id}`;
 }
 
 function findRecipeBySessionId(activeRecipeId: string | null): Recipe | null {
@@ -131,12 +131,13 @@ function recommendRecipeFromTranscript(transcript: string): Recipe | null {
 
 function detectIntent(transcript: string, resolvedRecipe: Recipe | null): AudioIntent {
   const text = normalize(transcript);
+  const soundsLikeRecipe = /\b(how do i make|how to make|recipe for|make)\b/.test(text);
 
   if (/\b(next step|what s next|what is next|continue|go on|advance)\b/.test(text)) return "next_step";
   if (/\b(repeat|again|say that again|repeat that)\b/.test(text)) return "repeat_step";
   if (/\b(substitute|substitution|replace|swap|instead|can i use)\b/.test(text)) return "substitution_question";
   if (/\b(load|open|start)\b/.test(text) && resolvedRecipe) return "load_recipe";
-  if ((/\b(how do i make|how to make|recipe for|make)\b/.test(text) && resolvedRecipe) || resolvedRecipe) return "recipe_lookup";
+  if (soundsLikeRecipe && resolvedRecipe) return "recipe_lookup";
   return "general_help";
 }
 
@@ -345,6 +346,7 @@ async function transcribeAudio(file: File): Promise<string> {
   form.set("file", file, file.name || "audio-input");
 
   const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    signal: AbortSignal.timeout(30000),
     method: "POST",
     headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
     body: form
@@ -359,6 +361,7 @@ async function synthesizeSpeech(answerText: string, publicBaseUrl?: string): Pro
   if (!OPENAI_API_KEY) return undefined;
 
   const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    signal: AbortSignal.timeout(30000),
     method: "POST",
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,

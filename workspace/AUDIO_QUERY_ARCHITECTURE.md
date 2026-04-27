@@ -31,7 +31,7 @@ This is **not** a general chat-memory system. The session model is a narrow cook
 Text-first endpoint for structured JSON requests.
 
 File:
-- `/home/node/clawd/app/query/route.ts`
+- `app/query/route.ts`
 
 Behavior:
 - accepts JSON requests
@@ -45,7 +45,7 @@ Behavior:
 Audio-capable endpoint.
 
 File:
-- `/home/node/clawd/app/query-audio/route.ts`
+- `app/query-audio/route.ts`
 
 Behavior:
 - supports multipart audio uploads for spoken queries
@@ -57,7 +57,7 @@ Behavior:
 Static-style file serving route for generated TTS MP3s.
 
 File:
-- `/home/node/clawd/app/api/audio/[name]/route.ts`
+- `app/api/audio/[name]/route.ts`
 
 Behavior:
 - serves generated MP3 files from local disk
@@ -95,10 +95,10 @@ Responsibilities:
 ### SQLite database
 
 Database path:
-- `/home/node/clawd/workspace/data/recipes.db`
+- `workspace/data/recipes.db`
 
 Defined in:
-- `/home/node/clawd/lib/recipes.ts`
+- `lib/recipes.ts`
 
 The database contains at least these tables relevant to this architecture:
 - `recipes`
@@ -125,7 +125,7 @@ Important note:
 ### Generated audio on disk
 
 Generated TTS files are written to:
-- `/home/node/clawd/workspace/generated-audio`
+- `workspace/generated-audio`
 
 These files are transient artifacts, not durable records.
 
@@ -333,7 +333,7 @@ Important note:
 ## Speech-to-Text Implementation
 
 Speech-to-text is implemented in:
-- `/home/node/clawd/lib/audio-query.ts`
+- `lib/audio-query.ts`
 
 Current mechanism:
 - direct server-side HTTP call to OpenAI Audio Transcriptions API
@@ -369,7 +369,7 @@ Important note:
 ## Text-to-Speech Implementation
 
 Text-to-speech is implemented in:
-- `/home/node/clawd/lib/audio-query.ts`
+- `lib/audio-query.ts`
 
 Current mechanism:
 - direct server-side HTTP call to OpenAI Audio Speech API
@@ -495,7 +495,7 @@ They are **not** treated as durable user data because:
 
 ### Cleanup implementation
 Cleanup script:
-- `/home/node/clawd/workspace/scripts/prune-generated-audio.sh`
+- `workspace/scripts/prune-generated-audio.sh`
 
 Current behavior:
 - deletes `*.mp3` files from `workspace/generated-audio`
@@ -590,12 +590,12 @@ Defaults if unset:
 
 If another agent needs to understand or modify this system, start with these files:
 
-1. `/home/node/clawd/app/query-audio/route.ts`
-2. `/home/node/clawd/app/query/route.ts`
-3. `/home/node/clawd/lib/audio-query.ts`
-4. `/home/node/clawd/lib/recipes.ts`
-5. `/home/node/clawd/app/api/audio/[name]/route.ts`
-6. `/home/node/clawd/workspace/scripts/prune-generated-audio.sh`
+1. `app/query-audio/route.ts`
+2. `app/query/route.ts`
+3. `lib/audio-query.ts`
+4. `lib/recipes.ts`
+5. `app/api/audio/[name]/route.ts`
+6. `workspace/scripts/prune-generated-audio.sh`
 
 ---
 

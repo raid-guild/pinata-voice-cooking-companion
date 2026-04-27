@@ -1,5 +1,6 @@
-import fs from "node:fs/promises";
+import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,8 +17,8 @@ export async function GET(_request: Request, context: Context) {
   const filePath = path.join(generatedAudioDir, safeName);
 
   try {
-    const buffer = await fs.readFile(filePath);
-    return new Response(buffer, {
+    const stream = fs.createReadStream(filePath);
+    return new Response(Readable.toWeb(stream) as ReadableStream, {
       status: 200,
       headers: {
         "Content-Type": "audio/mpeg",

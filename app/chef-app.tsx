@@ -39,17 +39,29 @@ export default function ChefApp() {
   );
 
   async function loadRecipes(query = search) {
-    const response = await fetch(`/app/api/recipes?q=${encodeURIComponent(query)}`);
-    const data = (await response.json()) as { recipes: Recipe[] };
-    setRecipes(data.recipes);
-    setSelectedId((current) => current ?? data.recipes[0]?.id ?? null);
-    setStatus(`${data.recipes.length} recipe${data.recipes.length === 1 ? "" : "s"} saved`);
+    try {
+      const response = await fetch(`/app/api/recipes?q=${encodeURIComponent(query)}`);
+      if (!response.ok) throw new Error(`Recipe request failed: ${response.status}`);
+      const data = (await response.json()) as { recipes: Recipe[] };
+      setRecipes(data.recipes);
+      setSelectedId((current) => current ?? data.recipes[0]?.id ?? null);
+      setStatus(`${data.recipes.length} recipe${data.recipes.length === 1 ? "" : "s"} saved`);
+    } catch {
+      setRecipes([]);
+      setSelectedId(null);
+      setStatus("Couldn’t load recipes.");
+    }
   }
 
   async function loadEvents() {
-    const response = await fetch("/app/api/events?limit=12");
-    const data = (await response.json()) as { events: FoodEvent[] };
-    setEvents(data.events);
+    try {
+      const response = await fetch("/app/api/events?limit=12");
+      if (!response.ok) throw new Error(`Events request failed: ${response.status}`);
+      const data = (await response.json()) as { events: FoodEvent[] };
+      setEvents(data.events);
+    } catch {
+      setEvents([]);
+    }
   }
 
   useEffect(() => {

@@ -1,7 +1,9 @@
 #!/bin/sh
 set -eu
 
-AUDIO_DIR="/home/node/clawd/workspace/generated-audio"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+WORKSPACE_DIR=$(dirname "$SCRIPT_DIR")
+AUDIO_DIR="${AUDIO_DIR:-$WORKSPACE_DIR/generated-audio}"
 RETENTION_DAYS="${RETENTION_DAYS:-1}"
 
 if [ ! -d "$AUDIO_DIR" ]; then

@@ -71,7 +71,7 @@ select {
 
 .eyebrow {
   margin: 0 0 8px;
-  color: currentColor;
+  color: currentcolor;
   font-size: 0.76rem;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -84,7 +84,7 @@ select {
   flex-wrap: wrap;
   gap: 10px;
   margin: 0 0 12px;
-  color: currentColor;
+  color: currentcolor;
   font-size: 0.76rem;
   letter-spacing: 0;
   text-transform: uppercase;
