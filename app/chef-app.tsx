@@ -273,7 +273,7 @@ export default function ChefApp() {
         </aside>
       </section>
       <footer className="footer">
-        Built by Raid Guild. Free and open source.
+        Built by RaidGuild. Free and open source.
       </footer>
     </main>
   );
