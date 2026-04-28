@@ -44,9 +44,10 @@ export async function POST(request: Request) {
   }
 
   try {
+    const cleanedTranscript = typeof body?.query === "string" ? body.query.trim() : "";
     const result =
       inputMode === "next_step"
-        ? await handleNextStep(sessionId, { includeAudio: false })
+        ? await handleNextStep(sessionId, { includeAudio: false, transcript: cleanedTranscript })
         : await handleTextQuery({
             transcript: body?.query as string,
             sessionId,
