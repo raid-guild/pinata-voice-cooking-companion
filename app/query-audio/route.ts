@@ -32,6 +32,7 @@ export async function POST(request: Request) {
       const result = await handleNextStep(sessionId, { includeAudio: true });
       return Response.json(result, { status: result.ok ? 200 : 400 });
     } catch (error) {
+      console.error("[query-audio] JSON next_step request failed", error);
       const message = error instanceof Error ? error.message : "Unknown error.";
       return Response.json(
         {
@@ -97,6 +98,7 @@ export async function POST(request: Request) {
 
     return Response.json(result, { status: result.ok ? 200 : 400 });
   } catch (error) {
+    console.error("[query-audio] Multipart audio request failed", error);
     const message = error instanceof Error ? error.message : "Unknown error.";
     return Response.json(
       {
