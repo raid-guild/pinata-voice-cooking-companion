@@ -37,9 +37,9 @@ const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 const FILLER_WORDS = new Set(["please", "the", "a", "an", "me", "just", "now", "okay", "ok"]);
 
 function isSupportedAudioFile(file: File): boolean {
-  if (["audio/wav", "audio/mpeg"].includes(file.type)) return true;
+  if (["audio/wav", "audio/mpeg", "audio/webm", "audio/webm;codecs=opus", "audio/ogg"].includes(file.type)) return true;
   const lowerName = file.name.toLowerCase();
-  return lowerName.endsWith(".wav") || lowerName.endsWith(".mp3");
+  return lowerName.endsWith(".wav") || lowerName.endsWith(".mp3") || lowerName.endsWith(".webm") || lowerName.endsWith(".ogg");
 }
 
 function slugify(value: string): string {
@@ -131,7 +131,7 @@ function recommendRecipeFromTranscript(transcript: string): Recipe | null {
 
 function detectIntent(transcript: string, resolvedRecipe: Recipe | null): AudioIntent {
   const text = normalize(transcript);
-  const soundsLikeRecipe = /\b(how do i make|how to make|recipe for|make)\b/.test(text);
+  const soundsLikeRecipe = /\b(how do i make|how to make|recipe for|make|cook|i want to cook|i want to make)\b/.test(text);
 
   if (/\b(next step|what s next|what is next|continue|go on|advance)\b/.test(text)) return "next_step";
   if (/\b(repeat|again|say that again|repeat that)\b/.test(text)) return "repeat_step";
@@ -148,7 +148,10 @@ function soundsLikeRecipeRequest(transcript: string): boolean {
 
 function extractRecipeRequestLabel(transcript: string): string {
   const text = transcript.trim();
-  return text.replace(/^(how do i make|how to make|recipe for|load|open|start)\s+/i, "").replace(/[?!.]+$/, "").trim() || "that recipe";
+  return text
+    .replace(/^(i want to cook|i want to make|how do i make|how to make|recipe for|load|open|start)\s+/i, "")
+    .replace(/[?!.]+$/, "")
+    .trim() || "that recipe";
 }
 
 function spokenStep(recipe: Recipe, index: number): string | null {
@@ -168,6 +171,8 @@ function isAffirmative(text: string): boolean {
 }
 
 function isIngredientRequest(text: string): boolean {
+  const normalized = normalize(text);
+  if (/\b(which ingredient|what ingredient|how much|how many|quantity|amount)\b/.test(normalized)) return false;
   const tokenSet = new Set(words(text));
   return tokenSet.has("ingredients") || tokenSet.has("ingredient");
 }
@@ -228,51 +233,73 @@ function buildSubstitutionAnswer(transcript: string, recipe: Recipe | null): str
     : "Tell me the ingredient you want to swap, and I’ll give you the best substitute.";
 }
 
-function buildContextualAnswer(transcript: string, recipe: Recipe, state: VoiceSessionState): string | null {
+function buildContextualAnswer(
+  transcript: string,
+  recipe: Recipe,
+  state: VoiceSessionState
+): { answerText: string; nextState: VoiceSessionState } | null {
   const text = normalize(transcript);
   const currentText = state.phase === "ingredients" ? recipe.ingredients[state.stepIndex]?.trim() || "" : recipe.instructions[state.stepIndex]?.trim() || "";
   if (!currentText) return null;
 
   if (/\b(degrees?|temperature|hot)\b/.test(text)) {
     const degreeMatch = currentText.match(/(\d{2,3})\s*degrees?/i);
-    if (degreeMatch) return `It says ${degreeMatch[1]} degrees.`;
-    return state.phase === "steps"
-      ? `This step doesn’t mention a temperature. ${answerForCurrentItem(recipe, state)}`
-      : `This ingredient doesn’t mention a temperature. ${answerForCurrentItem(recipe, state)}`;
+    if (degreeMatch) return { answerText: `It says ${degreeMatch[1]} degrees.`, nextState: state };
+    return {
+      answerText:
+        state.phase === "steps"
+          ? `This step doesn’t mention a temperature. ${answerForCurrentItem(recipe, state)}`
+          : `This ingredient doesn’t mention a temperature. ${answerForCurrentItem(recipe, state)}`,
+      nextState: state
+    };
   }
 
   if (/\b(minutes?|hours?|seconds?|how long|time)\b/.test(text)) {
-    const durationMatch = currentText.match(/(\d+\s*(?:to\s*\d+)?\s*(?:minutes?|hours?|seconds?))/i);
-    if (durationMatch) return `It says ${durationMatch[1]}.`;
-    return state.phase === "steps"
-      ? `This step doesn’t mention a time. ${answerForCurrentItem(recipe, state)}`
-      : `This ingredient doesn’t mention a time. ${answerForCurrentItem(recipe, state)}`;
+    const durationMatch = currentText.match(/(\d+(?:\s*(?:to|[-–])\s*\d+)?\s*(?:minutes?|hours?|seconds?))/i);
+    if (durationMatch) return { answerText: `It says ${durationMatch[1]}.`, nextState: state };
+    return {
+      answerText:
+        state.phase === "steps"
+          ? `This step doesn’t mention a time. ${answerForCurrentItem(recipe, state)}`
+          : `This ingredient doesn’t mention a time. ${answerForCurrentItem(recipe, state)}`,
+      nextState: state
+    };
   }
 
   if (/\b(after that|what next|what do i do after that|then what)\b/.test(text) && state.phase === "steps") {
-    const nextStep = spokenStep(recipe, state.stepIndex + 1);
-    return nextStep ?? `There isn’t another saved step after this one.`;
+    const nextIndex = state.stepIndex + 1;
+    const nextStep = spokenStep(recipe, nextIndex);
+    return {
+      answerText: nextStep ?? `There isn’t another saved step after this one.`,
+      nextState: nextStep ? { ...state, stepIndex: nextIndex, pendingPrompt: null } : state
+    };
   }
 
-  if (/\b(previous step|step before|what was the last step|before that)\b/.test(text) && state.phase === "steps") {
-    if (state.stepIndex <= 0) return "You’re on the first step already.";
-    return spokenStep(recipe, state.stepIndex - 1) ?? "I don’t have the previous step saved.";
+  if (/\b(previous step|step before|what was the last step|before that|go back|back up|previous)\b/.test(text) && state.phase === "steps") {
+    if (state.stepIndex <= 0) return { answerText: "You’re on the first step already.", nextState: state };
+    const previousIndex = state.stepIndex - 1;
+    return {
+      answerText: spokenStep(recipe, previousIndex) ?? "I don’t have the previous step saved.",
+      nextState: { ...state, stepIndex: previousIndex, pendingPrompt: null }
+    };
   }
 
   if (/\b(what step|which step)\b/.test(text) && state.phase === "steps") {
-    return `You’re on step ${state.stepIndex + 1}.`;
+    return { answerText: `You’re on step ${state.stepIndex + 1}.`, nextState: state };
   }
 
   if (/\b(again|repeat|what was that|say that again)\b/.test(text)) {
-    return answerForCurrentItem(recipe, state);
+    return { answerText: answerForCurrentItem(recipe, state), nextState: state };
   }
 
   if (/\b(how much|how many|quantity|amount)\b/.test(text) && state.phase === "ingredients") {
-    return ingredientLine(recipe, state.stepIndex) ?? null;
+    const answerText = ingredientLine(recipe, state.stepIndex);
+    return answerText ? { answerText, nextState: state } : null;
   }
 
   if (/\b(which ingredient|what ingredient)\b/.test(text) && state.phase === "ingredients") {
-    return ingredientLine(recipe, state.stepIndex) ?? null;
+    const answerText = ingredientLine(recipe, state.stepIndex);
+    return answerText ? { answerText, nextState: state } : null;
   }
 
   return null;
@@ -411,7 +438,10 @@ async function finalizeResponse(options: {
   };
 }
 
-export async function handleNextStep(sessionId: string, options?: { includeAudio?: boolean; publicBaseUrl?: string }): Promise<QueryResult> {
+export async function handleNextStep(
+  sessionId: string,
+  options?: { includeAudio?: boolean; publicBaseUrl?: string; transcript?: string }
+): Promise<QueryResult> {
   const currentSession = getVoiceSession(sessionId);
   const currentRecipe = findRecipeBySessionId(currentSession.activeRecipeId);
 
@@ -425,7 +455,7 @@ export async function handleNextStep(sessionId: string, options?: { includeAudio
 
   if (currentSession.pendingPrompt === "ingredients_or_first_step") {
     return finalizeResponse({
-      transcript: "",
+      transcript: options?.transcript ?? "",
       intent: "next_step",
       answerText: ingredientLine(currentRecipe, 0) ?? `I have ${currentRecipe.title}, but there are no saved ingredients yet.`,
       sessionId,
@@ -440,7 +470,7 @@ export async function handleNextStep(sessionId: string, options?: { includeAudio
     const nextIngredient = ingredientLine(currentRecipe, nextIngredientIndex);
     if (nextIngredient) {
       return finalizeResponse({
-        transcript: "",
+        transcript: options?.transcript ?? "",
         intent: "next_step",
         answerText: nextIngredient,
         sessionId,
@@ -451,7 +481,7 @@ export async function handleNextStep(sessionId: string, options?: { includeAudio
     }
 
     return finalizeResponse({
-      transcript: "",
+      transcript: options?.transcript ?? "",
       intent: "next_step",
       answerText: answerForStep(currentRecipe, 0),
       sessionId,
@@ -465,7 +495,7 @@ export async function handleNextStep(sessionId: string, options?: { includeAudio
   const nextStep = spokenStep(currentRecipe, nextIndex);
   if (!nextStep) {
     return finalizeResponse({
-      transcript: "",
+      transcript: options?.transcript ?? "",
       intent: "next_step",
       answerText: `You’re at the end of ${currentRecipe.title}. Want ingredients or a repeat?`,
       sessionId,
@@ -476,7 +506,7 @@ export async function handleNextStep(sessionId: string, options?: { includeAudio
   }
 
   return finalizeResponse({
-    transcript: "",
+    transcript: options?.transcript ?? "",
     intent: "next_step",
     answerText: nextStep,
     sessionId,
@@ -555,9 +585,9 @@ export async function handleTextQuery(options: {
     return finalizeResponse({
       transcript: cleanedTranscript,
       intent: "general_help",
-      answerText: contextualAnswer,
+      answerText: contextualAnswer.answerText,
       sessionId,
-      nextState: currentSession,
+      nextState: contextualAnswer.nextState,
       includeAudio,
       publicBaseUrl
     });
@@ -613,7 +643,7 @@ export async function handleTextQuery(options: {
     }
 
     case "next_step":
-      return handleNextStep(sessionId, { includeAudio, publicBaseUrl });
+      return handleNextStep(sessionId, { includeAudio, publicBaseUrl, transcript: cleanedTranscript });
 
     case "repeat_step": {
       const activeRecipe = currentRecipe ?? resolvedRecipe;
