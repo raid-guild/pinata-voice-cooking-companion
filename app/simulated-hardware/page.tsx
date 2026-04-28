@@ -129,8 +129,6 @@ function FallbackDevice({ ledState, onMainPress, onTalkStart, onTalkEnd }: Devic
           onPointerUp={onTalkEnd}
           onPointerCancel={onTalkEnd}
           onPointerLeave={onTalkEnd}
-          onTouchStart={onTalkStart}
-          onTouchEnd={onTalkEnd}
           onContextMenu={suppressLongPress}
           aria-label="Talk Button"
         >
@@ -153,6 +151,7 @@ export default function SimulatedHardwarePage() {
   const requestInFlightRef = useRef(false);
   const sessionIdRef = useRef<string>("");
   const ledStateRef = useRef<LedState>("ready");
+  const errorResetTimeoutRef = useRef<number | null>(null);
   const [useFallback, setUseFallback] = useState(false);
   const [ledState, setLedState] = useState<LedState>("ready");
   const [statusText, setStatusText] = useState("Ready");
@@ -169,11 +168,13 @@ export default function SimulatedHardwarePage() {
   }, [ledState]);
 
   const setErrorState = useCallback((message: string) => {
+    if (errorResetTimeoutRef.current) window.clearTimeout(errorResetTimeoutRef.current);
     setStatusText(message);
     setLedState("error");
-    window.setTimeout(() => {
+    errorResetTimeoutRef.current = window.setTimeout(() => {
       setLedState("ready");
       setStatusText("Ready");
+      errorResetTimeoutRef.current = null;
     }, 1800);
   }, []);
 
@@ -259,6 +260,7 @@ export default function SimulatedHardwarePage() {
 
   const handleTalkStart = useCallback(async () => {
     if (requestInFlightRef.current || talkActiveRef.current) return;
+    talkActiveRef.current = true;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -268,7 +270,6 @@ export default function SimulatedHardwarePage() {
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
-      talkActiveRef.current = true;
 
       recorder.addEventListener("dataavailable", (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
@@ -279,7 +280,12 @@ export default function SimulatedHardwarePage() {
         mediaRecorderRef.current = null;
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
         audioChunksRef.current = [];
-        if (blob.size > 0) await uploadRecording(blob);
+        if (blob.size > 0) {
+          await uploadRecording(blob);
+        } else {
+          setLedState("ready");
+          setStatusText("Ready");
+        }
       });
 
       recorder.start();
@@ -328,6 +334,7 @@ export default function SimulatedHardwarePage() {
 
   useEffect(() => {
     return () => {
+      if (errorResetTimeoutRef.current) window.clearTimeout(errorResetTimeoutRef.current);
       handleTalkEnd();
       stopMediaTracks();
     };
@@ -577,6 +584,16 @@ export default function SimulatedHardwarePage() {
     }
 
     function onPointerLeave() {
+      if (activeButtonName === "Talk Button") {
+        handleTalkEnd();
+      }
+      releaseButtons(false);
+    }
+
+    function onPointerCancel() {
+      if (activeButtonName === "Talk Button") {
+        handleTalkEnd();
+      }
       releaseButtons(false);
     }
 
@@ -586,6 +603,7 @@ export default function SimulatedHardwarePage() {
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
     renderer.domElement.addEventListener("pointerleave", onPointerLeave);
+    renderer.domElement.addEventListener("pointercancel", onPointerCancel);
     renderer.domElement.addEventListener("contextmenu", suppressNativeContextMenu);
 
     let frame = 0;
@@ -621,6 +639,7 @@ export default function SimulatedHardwarePage() {
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
       renderer.domElement.removeEventListener("pointerleave", onPointerLeave);
+      renderer.domElement.removeEventListener("pointercancel", onPointerCancel);
       renderer.domElement.removeEventListener("contextmenu", suppressNativeContextMenu);
       if (mountEl.contains(renderer.domElement)) mountEl.removeChild(renderer.domElement);
       scene.traverse((object) => {
@@ -651,7 +670,24 @@ export default function SimulatedHardwarePage() {
         {useFallback ? (
           <FallbackDevice ledState={ledState} onMainPress={() => void sendNextStep()} onTalkStart={() => void handleTalkStart()} onTalkEnd={handleTalkEnd} />
         ) : (
-          <div ref={mountRef} className={styles.scene} aria-label="3D simulated hardware device" />
+          <>
+            <div ref={mountRef} className={styles.scene} aria-label="3D simulated hardware device" />
+            <div style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0 }}>
+              <button type="button" onClick={() => void sendNextStep()} aria-label="Next Step">
+                Next Step
+              </button>
+              <button
+                type="button"
+                onPointerDown={() => void handleTalkStart()}
+                onPointerUp={handleTalkEnd}
+                onPointerCancel={handleTalkEnd}
+                onPointerLeave={handleTalkEnd}
+                aria-label="Talk Button"
+              >
+                Talk Button
+              </button>
+            </div>
+          </>
         )}
         <div className={`${styles.label} ${styles.mainLabel}`}>Next Step</div>
         <div className={`${styles.label} ${styles.talkLabel}`}>Talk Button</div>
