@@ -37,7 +37,8 @@ const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 const FILLER_WORDS = new Set(["please", "the", "a", "an", "me", "just", "now", "okay", "ok"]);
 
 function isSupportedAudioFile(file: File): boolean {
-  if (["audio/wav", "audio/mpeg", "audio/webm", "audio/webm;codecs=opus", "audio/ogg"].includes(file.type)) return true;
+  const normalizedType = file.type.split(";")[0]?.trim().toLowerCase() || "";
+  if (["audio/wav", "audio/mpeg", "audio/webm", "audio/ogg"].includes(normalizedType)) return true;
   const lowerName = file.name.toLowerCase();
   return lowerName.endsWith(".wav") || lowerName.endsWith(".mp3") || lowerName.endsWith(".webm") || lowerName.endsWith(".ogg");
 }
@@ -172,7 +173,8 @@ function isAffirmative(text: string): boolean {
 
 function isIngredientRequest(text: string): boolean {
   const normalized = normalize(text);
-  if (/\b(which ingredient|what ingredient|how much|how many|quantity|amount)\b/.test(normalized)) return false;
+  if (/\b(which ingredient|what ingredient|quantity|amount)\b/.test(normalized)) return false;
+  if (/\b(how much|how many)\b/.test(normalized) && /\bingredient\b/.test(normalized) && !/\bingredients\b/.test(normalized)) return false;
   const tokenSet = new Set(words(text));
   return tokenSet.has("ingredients") || tokenSet.has("ingredient");
 }
@@ -269,18 +271,24 @@ function buildContextualAnswer(
   if (/\b(after that|what next|what do i do after that|then what)\b/.test(text) && state.phase === "steps") {
     const nextIndex = state.stepIndex + 1;
     const nextStep = spokenStep(recipe, nextIndex);
-    return {
-      answerText: nextStep ?? `There isn’t another saved step after this one.`,
-      nextState: nextStep ? { ...state, stepIndex: nextIndex, pendingPrompt: null } : state
-    };
+    return nextStep
+      ? {
+          answerText: nextStep,
+          nextState: { ...state, stepIndex: nextIndex, pendingPrompt: null }
+        }
+      : {
+          answerText: `You’re at the end of ${recipe.title}. Want ingredients or a repeat?`,
+          nextState: { ...state, phase: "steps", pendingPrompt: "ingredients_or_repeat" }
+        };
   }
 
   if (/\b(previous step|step before|what was the last step|before that|go back|back up|previous)\b/.test(text) && state.phase === "steps") {
     if (state.stepIndex <= 0) return { answerText: "You’re on the first step already.", nextState: state };
     const previousIndex = state.stepIndex - 1;
+    const previousStep = spokenStep(recipe, previousIndex);
     return {
-      answerText: spokenStep(recipe, previousIndex) ?? "I don’t have the previous step saved.",
-      nextState: { ...state, stepIndex: previousIndex, pendingPrompt: null }
+      answerText: previousStep ?? "I don’t have the previous step saved.",
+      nextState: previousStep ? { ...state, stepIndex: previousIndex, pendingPrompt: null } : state
     };
   }
 
