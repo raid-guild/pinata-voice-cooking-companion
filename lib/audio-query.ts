@@ -240,6 +240,14 @@ function answerForCurrentItem(recipe: Recipe, state: VoiceSessionState): string 
   return answerForStep(recipe, state.stepIndex);
 }
 
+function formatTemperatureForSpeech(value: string, unit: string): string {
+  const normalizedUnit = unit.replace(/\s+/g, "").toUpperCase();
+  if (/DEGREES?/.test(normalizedUnit)) return `${value} degrees`;
+  if (normalizedUnit === "F" || normalizedUnit === "°F") return `${value} degrees Fahrenheit`;
+  if (normalizedUnit === "C" || normalizedUnit === "°C") return `${value} degrees Celsius`;
+  return `${value} ${unit}`.trim();
+}
+
 function buildSubstitutionAnswer(transcript: string, recipe: Recipe | null): string {
   const text = normalize(transcript);
 
@@ -272,11 +280,9 @@ function buildContextualAnswer(
   if (!currentText) return null;
 
   if (/\b(degrees?|temperature|hot)\b/.test(text)) {
-    const degreeMatch = currentText.match(/(\d{2,3})\s*(degrees?|°\s*[FC]|[FC])/i);
+    const degreeMatch = currentText.match(/(\d{2,3})\s*(degrees?|°\s*[FC]\b|\b[FC]\b)/i);
     if (degreeMatch) {
-      const unit = degreeMatch[2].replace(/\s+/g, "");
-      const spokenUnit = /degrees?/i.test(unit) ? "degrees" : unit.toUpperCase().replace("°", " °");
-      return { answerText: `It says ${degreeMatch[1]} ${spokenUnit}.`, nextState: state };
+      return { answerText: `It says ${formatTemperatureForSpeech(degreeMatch[1], degreeMatch[2])}.`, nextState: state };
     }
     return {
       answerText:
@@ -462,7 +468,10 @@ function sanitizeParsedQuery(value: unknown): ParsedQuery | null {
     question: typeof candidate.question === "string" ? candidate.question.trim() : undefined,
     questionType,
     answerStyle,
-    confidence: typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence) ? candidate.confidence : undefined
+    confidence:
+      typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence) && candidate.confidence >= 0 && candidate.confidence <= 1
+        ? candidate.confidence
+        : undefined
   };
 }
 
@@ -773,7 +782,7 @@ async function executeParsedQuery(options: {
         return {
           ok: false,
           transcript,
-          intent: "next_step",
+          intent: "general_help",
           answerText: "No recipe is loaded yet. Ask for a recipe first.",
           session: sessionPayload(sessionId, currentSession)
         };
@@ -813,9 +822,9 @@ async function executeParsedQuery(options: {
         return finalizeResponse({
           transcript,
           intent: "general_help",
-          answerText: answerForStep(currentRecipe, 0),
+          answerText: "You’re not in the cooking steps yet. Ask for the first step when you’re ready.",
           sessionId,
-          nextState: { ...currentSession, phase: "steps", stepIndex: 0, pendingPrompt: null },
+          nextState: { ...currentSession, pendingPrompt: null },
           includeAudio,
           publicBaseUrl
         });
