@@ -62,6 +62,45 @@ const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
 const TTS_VOICE = process.env.OPENAI_TTS_VOICE || "alloy";
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 const FILLER_WORDS = new Set(["please", "the", "a", "an", "me", "just", "now", "okay", "ok"]);
+const QUERY_STOP_WORDS = new Set([
+  "what",
+  "whats",
+  "good",
+  "could",
+  "should",
+  "would",
+  "recipe",
+  "recipes",
+  "make",
+  "cook",
+  "try",
+  "with",
+  "want",
+  "need",
+  "load",
+  "open",
+  "start",
+  "for",
+  "something",
+  "similar"
+]);
+const PROTEIN_WORDS = new Set(["chicken", "tuna", "salmon", "shrimp", "tofu", "egg", "eggs", "turkey", "fish"]);
+const DISH_TYPE_WORDS = new Set([
+  "burger",
+  "sandwich",
+  "ramen",
+  "pasta",
+  "noodles",
+  "casserole",
+  "soup",
+  "stew",
+  "salad",
+  "rice",
+  "bowl",
+  "wrap",
+  "tacos",
+  "taco"
+]);
 
 function isSupportedAudioFile(file: File): boolean {
   const normalizedType = file.type.split(";")[0]?.trim().toLowerCase() || "";
@@ -133,24 +172,33 @@ function findRecipeFromTranscript(transcript: string): Recipe | null {
 }
 
 function recommendRecipeFromTranscript(transcript: string): Recipe | null {
-  const queryWords = Array.from(
-    new Set(
-      words(transcript).filter(
-        (word) =>
-          !["what", "whats", "good", "could", "should", "would", "recipe", "recipes", "make", "cook", "try", "with", "want", "need"].includes(word)
-      )
-    )
-  );
+  const queryWords = Array.from(new Set(words(transcript).filter((word) => !QUERY_STOP_WORDS.has(word))));
 
   if (queryWords.length === 0) return null;
 
   let best: { recipe: Recipe; score: number } | null = null;
   for (const recipe of listRecipes()) {
+    const normalizedTitle = normalize(recipe.title);
     const haystack = normalize([recipe.title, recipe.description, recipe.theme, recipe.effort, ...recipe.tags, ...recipe.ingredients].join(" "));
     let score = 0;
+
     for (const word of queryWords) {
-      if (haystack.includes(word)) score += word.length >= 5 ? 3 : 2;
+      const inTitle = normalizedTitle.includes(word);
+      const inHaystack = haystack.includes(word);
+      if (!inHaystack) continue;
+
+      score += inTitle ? 5 : word.length >= 5 ? 3 : 2;
+
+      if (PROTEIN_WORDS.has(word) && inHaystack) score += 4;
+      if (DISH_TYPE_WORDS.has(word) && inTitle) score += 6;
+      else if (DISH_TYPE_WORDS.has(word) && inHaystack) score += 3;
     }
+
+    const proteinMatches = queryWords.filter((word) => PROTEIN_WORDS.has(word) && haystack.includes(word)).length;
+    const dishTypeMatches = queryWords.filter((word) => DISH_TYPE_WORDS.has(word) && haystack.includes(word)).length;
+    if (proteinMatches > 0) score += proteinMatches * 3;
+    if (dishTypeMatches > 0) score += dishTypeMatches * 4;
+
     if (!best || score > best.score) best = { recipe, score };
   }
 
@@ -178,8 +226,25 @@ function extractRecipeRequestLabel(transcript: string): string {
   const text = transcript.trim();
   return text
     .replace(/^(i want to cook|i want to make|how do i make|how to make|recipe for|load|open|start)\s+/i, "")
+    .replace(/\brecipe\b$/i, "")
+    .replace(/^(a|an|the)\s+/i, "")
     .replace(/[?!.]+$/, "")
     .trim() || "that recipe";
+}
+
+function missingRecipeAnswer(requestedTitle: string, transcript: string, currentRecipe: Recipe | null): string {
+  const similarRecipe = recommendRecipeFromTranscript(transcript);
+  const similarText = similarRecipe ? ` A similar saved recipe is ${similarRecipe.title}.` : "";
+  const currentRecipeText = currentRecipe ? ` Your current recipe is still ${currentRecipe.title}.` : "";
+  return `I don’t have a saved recipe for ${requestedTitle} yet.${similarText}${currentRecipeText}`;
+}
+
+function logQueryDecision(event: string, details: Record<string, unknown>) {
+  try {
+    console.log(`[audio-query] ${event} ${JSON.stringify(details)}`);
+  } catch {
+    console.log(`[audio-query] ${event}`);
+  }
 }
 
 function spokenStep(recipe: Recipe, index: number): string | null {
@@ -240,14 +305,6 @@ function answerForCurrentItem(recipe: Recipe, state: VoiceSessionState): string 
   return answerForStep(recipe, state.stepIndex);
 }
 
-function formatTemperatureForSpeech(value: string, unit: string): string {
-  const normalizedUnit = unit.replace(/\s+/g, "").toUpperCase();
-  if (/DEGREES?/.test(normalizedUnit)) return `${value} degrees`;
-  if (normalizedUnit === "F" || normalizedUnit === "°F") return `${value} degrees Fahrenheit`;
-  if (normalizedUnit === "C" || normalizedUnit === "°C") return `${value} degrees Celsius`;
-  return `${value} ${unit}`.trim();
-}
-
 function buildSubstitutionAnswer(transcript: string, recipe: Recipe | null): string {
   const text = normalize(transcript);
 
@@ -280,9 +337,11 @@ function buildContextualAnswer(
   if (!currentText) return null;
 
   if (/\b(degrees?|temperature|hot)\b/.test(text)) {
-    const degreeMatch = currentText.match(/(\d{2,3})\s*(degrees?|°\s*[FC]\b|\b[FC]\b)/i);
+    const degreeMatch = currentText.match(/(\d{2,3})\s*(degrees?|°\s*[FC]|[FC])/i);
     if (degreeMatch) {
-      return { answerText: `It says ${formatTemperatureForSpeech(degreeMatch[1], degreeMatch[2])}.`, nextState: state };
+      const unit = degreeMatch[2].replace(/\s+/g, "");
+      const spokenUnit = /degrees?/i.test(unit) ? "degrees" : unit.toUpperCase().replace("°", " °");
+      return { answerText: `It says ${degreeMatch[1]} ${spokenUnit}.`, nextState: state };
     }
     return {
       answerText:
@@ -468,11 +527,33 @@ function sanitizeParsedQuery(value: unknown): ParsedQuery | null {
     question: typeof candidate.question === "string" ? candidate.question.trim() : undefined,
     questionType,
     answerStyle,
-    confidence:
-      typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence) && candidate.confidence >= 0 && candidate.confidence <= 1
-        ? candidate.confidence
-        : undefined
+    confidence: typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence) ? candidate.confidence : undefined
   };
+}
+
+function recipeSimilarityScore(query: string, recipe: Recipe): number {
+  const normalizedQuery = normalize(query);
+  const normalizedTitle = normalize(recipe.title);
+  if (!normalizedQuery || !normalizedTitle) return 0;
+  if (normalizedQuery === normalizedTitle) return 100;
+  if (normalizedTitle.includes(normalizedQuery) || normalizedQuery.includes(normalizedTitle)) return 85;
+
+  const queryWords = Array.from(new Set(words(query)));
+  const titleWords = Array.from(new Set(words(recipe.title)));
+  if (queryWords.length === 0 || titleWords.length === 0) return 0;
+
+  const overlap = queryWords.filter((word) => titleWords.includes(word)).length;
+  const ratio = overlap / Math.max(queryWords.length, titleWords.length);
+  return Math.round(ratio * 100);
+}
+
+function findClosestRecipeByTitle(query: string, recipes: Recipe[]): { recipe: Recipe; score: number } | null {
+  let best: { recipe: Recipe; score: number } | null = null;
+  for (const recipe of recipes) {
+    const score = recipeSimilarityScore(query, recipe);
+    if (!best || score > best.score) best = { recipe, score };
+  }
+  return best;
 }
 
 function findRecipeByModelSelection(parsed: ParsedQuery, candidates: Recipe[], currentRecipe: Recipe | null): Recipe | null {
@@ -486,8 +567,8 @@ function findRecipeByModelSelection(parsed: ParsedQuery, candidates: Recipe[], c
     const exact = candidates.find((recipe) => normalize(recipe.title) === title) ?? listRecipes().find((recipe) => normalize(recipe.title) === title);
     if (exact) return exact;
 
-    const fuzzy = findRecipeFromTranscript(parsed.recipeTitle);
-    if (fuzzy) return fuzzy;
+    const closest = findClosestRecipeByTitle(parsed.recipeTitle, listRecipes());
+    if (closest && closest.score >= 70) return closest.recipe;
   }
 
   if (parsed.action !== "search_recipe" && parsed.action !== "load_recipe" && currentRecipe) {
@@ -782,7 +863,7 @@ async function executeParsedQuery(options: {
         return {
           ok: false,
           transcript,
-          intent: "general_help",
+          intent: "next_step",
           answerText: "No recipe is loaded yet. Ask for a recipe first.",
           session: sessionPayload(sessionId, currentSession)
         };
@@ -822,9 +903,9 @@ async function executeParsedQuery(options: {
         return finalizeResponse({
           transcript,
           intent: "general_help",
-          answerText: "You’re not in the cooking steps yet. Ask for the first step when you’re ready.",
+          answerText: answerForStep(currentRecipe, 0),
           sessionId,
-          nextState: { ...currentSession, pendingPrompt: null },
+          nextState: { ...currentSession, phase: "steps", stepIndex: 0, pendingPrompt: null },
           includeAudio,
           publicBaseUrl
         });
@@ -928,7 +1009,31 @@ async function executeParsedQuery(options: {
 
     case "search_recipe":
     case "load_recipe": {
-      if (!resolvedRecipe) return null;
+      const transcriptRequestedTitle = extractRecipeRequestLabel(transcript);
+      const explicitRequestedTitle = transcriptRequestedTitle || parsed.recipeTitle?.trim() || "that recipe";
+      const closestMatch = explicitRequestedTitle ? findClosestRecipeByTitle(explicitRequestedTitle, listRecipes()) : null;
+      const resolvedMatchScore = resolvedRecipe ? recipeSimilarityScore(explicitRequestedTitle, resolvedRecipe) : 0;
+
+      if (!resolvedRecipe || resolvedMatchScore < 70) {
+        logQueryDecision("model_missing_recipe", {
+          transcript,
+          action: parsed.action,
+          requestedTitle: explicitRequestedTitle,
+          resolvedRecipe: resolvedRecipe?.title ?? null,
+          resolvedMatchScore,
+          currentRecipe: currentRecipe?.title ?? null
+        });
+        return finalizeResponse({
+          transcript,
+          intent: "general_help",
+          answerText: missingRecipeAnswer(explicitRequestedTitle, transcript, currentRecipe),
+          sessionId,
+          nextState: currentSession,
+          includeAudio,
+          publicBaseUrl
+        });
+      }
+
       const wantsFirstStep = parsed.action === "load_recipe" || parsed.answerStyle === "first_step";
       if (wantsFirstStep) {
         return finalizeResponse({
@@ -958,6 +1063,23 @@ async function executeParsedQuery(options: {
     }
 
     case "clarify": {
+      if (soundsLikeRecipeRequest(transcript)) {
+        const requestedTitle = extractRecipeRequestLabel(transcript);
+        logQueryDecision("model_clarify_recipe_request", {
+          transcript,
+          requestedTitle,
+          currentRecipe: currentRecipe?.title ?? null
+        });
+        return finalizeResponse({
+          transcript,
+          intent: "general_help",
+          answerText: missingRecipeAnswer(requestedTitle, transcript, currentRecipe),
+          sessionId,
+          nextState: currentSession,
+          includeAudio,
+          publicBaseUrl
+        });
+      }
       return finalizeResponse({
         transcript,
         intent: "general_help",
@@ -1075,6 +1197,13 @@ export async function handleTextQuery(options: {
     });
 
     if (parsed) {
+      logQueryDecision("model_parsed", {
+        transcript: cleanedTranscript,
+        action: parsed.action,
+        parsedRecipeTitle: parsed.recipeTitle ?? null,
+        parsedRecipeId: parsed.recipeId ?? null,
+        currentRecipe: currentRecipe?.title ?? null
+      });
       const executed = await executeParsedQuery({
         parsed,
         transcript: cleanedTranscript,
@@ -1086,6 +1215,11 @@ export async function handleTextQuery(options: {
         candidates
       });
       if (executed) return executed;
+      logQueryDecision("model_fallback", {
+        transcript: cleanedTranscript,
+        action: parsed.action,
+        currentRecipe: currentRecipe?.title ?? null
+      });
     }
   } catch {
     // Fall through to deterministic heuristics.
@@ -1093,13 +1227,21 @@ export async function handleTextQuery(options: {
 
   const resolvedRecipe = findRecipeFromTranscript(cleanedTranscript) ?? currentRecipe;
   const intent = detectIntent(cleanedTranscript, resolvedRecipe);
+  logQueryDecision("heuristic_intent", {
+    transcript: cleanedTranscript,
+    intent,
+    resolvedRecipe: resolvedRecipe?.title ?? null,
+    currentRecipe: currentRecipe?.title ?? null
+  });
   let nextState: VoiceSessionState = { ...currentSession };
   let answerText = "Ask for a recipe, the next step, a substitution, or a repeat.";
 
   switch (intent) {
     case "recipe_lookup": {
-      if (!resolvedRecipe) {
-        answerText = "I couldn’t find that recipe yet. Try the exact recipe name.";
+      const requestedTitle = extractRecipeRequestLabel(cleanedTranscript);
+      const closestMatch = findClosestRecipeByTitle(requestedTitle, listRecipes());
+      if (!resolvedRecipe || (requestedTitle && closestMatch && closestMatch.score < 70)) {
+        answerText = missingRecipeAnswer(requestedTitle, cleanedTranscript, currentRecipe);
         break;
       }
       nextState = {
@@ -1113,8 +1255,10 @@ export async function handleTextQuery(options: {
     }
 
     case "load_recipe": {
-      if (!resolvedRecipe) {
-        answerText = "I couldn’t find that recipe to load.";
+      const requestedTitle = extractRecipeRequestLabel(cleanedTranscript);
+      const closestMatch = findClosestRecipeByTitle(requestedTitle, listRecipes());
+      if (!resolvedRecipe || (requestedTitle && closestMatch && closestMatch.score < 70)) {
+        answerText = missingRecipeAnswer(requestedTitle, cleanedTranscript, currentRecipe);
         break;
       }
       nextState = {
@@ -1149,7 +1293,8 @@ export async function handleTextQuery(options: {
 
     case "general_help": {
       if (soundsLikeRecipeRequest(cleanedTranscript)) {
-        answerText = `I don’t have a saved recipe for ${extractRecipeRequestLabel(cleanedTranscript)} yet.`;
+        const requestedTitle = extractRecipeRequestLabel(cleanedTranscript);
+        answerText = missingRecipeAnswer(requestedTitle, cleanedTranscript, currentRecipe);
         break;
       }
 
