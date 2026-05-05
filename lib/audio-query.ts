@@ -28,9 +28,36 @@ export type QueryResult = {
   };
 };
 
+type ModelAction =
+  | "search_recipe"
+  | "load_recipe"
+  | "get_ingredients"
+  | "get_current_step"
+  | "next_step"
+  | "previous_step"
+  | "repeat_step"
+  | "substitution_question"
+  | "recipe_question"
+  | "clarify"
+  | "general_help";
+
+type ModelQuestionType = "time" | "temperature" | "step_number" | "ingredient_amount" | "ingredient_identity" | "other";
+
+type ParsedQuery = {
+  action: ModelAction;
+  recipeTitle?: string;
+  recipeId?: number;
+  ingredient?: string;
+  question?: string;
+  questionType?: ModelQuestionType;
+  answerStyle?: "ingredients" | "first_step" | "auto";
+  confidence?: number;
+};
+
 const generatedAudioDir = path.join(process.cwd(), "workspace", "generated-audio");
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const TRANSCRIPTION_MODEL = process.env.OPENAI_TRANSCRIPTION_MODEL || "whisper-1";
+const QUERY_MODEL = process.env.OPENAI_QUERY_MODEL || "gpt-4.1-nano";
 const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
 const TTS_VOICE = process.env.OPENAI_TTS_VOICE || "alloy";
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
@@ -134,7 +161,7 @@ function detectIntent(transcript: string, resolvedRecipe: Recipe | null): AudioI
   const text = normalize(transcript);
   const soundsLikeRecipe = /\b(how do i make|how to make|recipe for|make|cook|i want to cook|i want to make)\b/.test(text);
 
-  if (/\b(next step|what s next|what is next|continue|go on|advance)\b/.test(text)) return "next_step";
+  if (/\b(next|next step|what s next|what is next|continue|go on|advance)\b/.test(text)) return "next_step";
   if (/\b(repeat|again|say that again|repeat that)\b/.test(text)) return "repeat_step";
   if (/\b(substitute|substitution|replace|swap|instead|can i use)\b/.test(text)) return "substitution_question";
   if (/\b(load|open|start)\b/.test(text) && resolvedRecipe) return "load_recipe";
@@ -245,8 +272,12 @@ function buildContextualAnswer(
   if (!currentText) return null;
 
   if (/\b(degrees?|temperature|hot)\b/.test(text)) {
-    const degreeMatch = currentText.match(/(\d{2,3})\s*degrees?/i);
-    if (degreeMatch) return { answerText: `It says ${degreeMatch[1]} degrees.`, nextState: state };
+    const degreeMatch = currentText.match(/(\d{2,3})\s*(degrees?|°\s*[FC]|[FC])/i);
+    if (degreeMatch) {
+      const unit = degreeMatch[2].replace(/\s+/g, "");
+      const spokenUnit = /degrees?/i.test(unit) ? "degrees" : unit.toUpperCase().replace("°", " °");
+      return { answerText: `It says ${degreeMatch[1]} ${spokenUnit}.`, nextState: state };
+    }
     return {
       answerText:
         state.phase === "steps"
@@ -373,23 +404,176 @@ function resolvePendingPrompt(transcript: string, currentSession: VoiceSessionSt
   return { handled: false };
 }
 
-async function transcribeAudio(file: File): Promise<string> {
-  if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured.");
+function rankRecipesForModel(transcript: string, recipes: Recipe[]): Recipe[] {
+  const query = normalize(transcript);
+  const queryWords = new Set(words(transcript));
 
-  const form = new FormData();
-  form.set("model", TRANSCRIPTION_MODEL);
-  form.set("file", file, file.name || "audio-input");
+  return [...recipes]
+    .map((recipe) => {
+      const haystack = normalize([recipe.title, recipe.description, recipe.theme, recipe.effort, ...recipe.tags, ...recipe.ingredients].join(" "));
+      let score = 0;
+      if (query && haystack.includes(query)) score += 20;
+      for (const variant of recipeTokenVariants(recipe.title)) {
+        if (query === variant) score += 25;
+        else if (query.includes(variant)) score += 12;
+      }
+      for (const word of queryWords) {
+        if (haystack.includes(word)) score += word.length >= 5 ? 3 : 2;
+      }
+      return { recipe, score };
+    })
+    .sort((a, b) => b.score - a.score || b.recipe.id - a.recipe.id)
+    .slice(0, 8)
+    .map(({ recipe }) => recipe);
+}
 
-  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-    signal: AbortSignal.timeout(30000),
+function sanitizeParsedQuery(value: unknown): ParsedQuery | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  const allowedActions: ModelAction[] = [
+    "search_recipe",
+    "load_recipe",
+    "get_ingredients",
+    "get_current_step",
+    "next_step",
+    "previous_step",
+    "repeat_step",
+    "substitution_question",
+    "recipe_question",
+    "clarify",
+    "general_help"
+  ];
+  const action = typeof candidate.action === "string" && allowedActions.includes(candidate.action as ModelAction) ? (candidate.action as ModelAction) : null;
+  if (!action) return null;
+
+  const allowedQuestionTypes: ModelQuestionType[] = ["time", "temperature", "step_number", "ingredient_amount", "ingredient_identity", "other"];
+  const questionType =
+    typeof candidate.questionType === "string" && allowedQuestionTypes.includes(candidate.questionType as ModelQuestionType)
+      ? (candidate.questionType as ModelQuestionType)
+      : undefined;
+
+  const answerStyle = candidate.answerStyle === "ingredients" || candidate.answerStyle === "first_step" || candidate.answerStyle === "auto" ? candidate.answerStyle : undefined;
+
+  return {
+    action,
+    recipeTitle: typeof candidate.recipeTitle === "string" ? candidate.recipeTitle.trim() : undefined,
+    recipeId: typeof candidate.recipeId === "number" && Number.isFinite(candidate.recipeId) ? candidate.recipeId : undefined,
+    ingredient: typeof candidate.ingredient === "string" ? candidate.ingredient.trim() : undefined,
+    question: typeof candidate.question === "string" ? candidate.question.trim() : undefined,
+    questionType,
+    answerStyle,
+    confidence: typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence) ? candidate.confidence : undefined
+  };
+}
+
+function findRecipeByModelSelection(parsed: ParsedQuery, candidates: Recipe[], currentRecipe: Recipe | null): Recipe | null {
+  if (parsed.recipeId != null) {
+    const byId = candidates.find((recipe) => recipe.id === parsed.recipeId) ?? listRecipes().find((recipe) => recipe.id === parsed.recipeId);
+    if (byId) return byId;
+  }
+
+  if (parsed.recipeTitle) {
+    const title = normalize(parsed.recipeTitle);
+    const exact = candidates.find((recipe) => normalize(recipe.title) === title) ?? listRecipes().find((recipe) => normalize(recipe.title) === title);
+    if (exact) return exact;
+
+    const fuzzy = findRecipeFromTranscript(parsed.recipeTitle);
+    if (fuzzy) return fuzzy;
+  }
+
+  if (parsed.action !== "search_recipe" && parsed.action !== "load_recipe" && currentRecipe) {
+    return currentRecipe;
+  }
+
+  return null;
+}
+
+async function interpretQueryWithModel(options: {
+  transcript: string;
+  currentSession: VoiceSessionState;
+  currentRecipe: Recipe | null;
+  candidateRecipes: Recipe[];
+}): Promise<ParsedQuery | null> {
+  if (!OPENAI_API_KEY) return null;
+
+  const { transcript, currentSession, currentRecipe, candidateRecipes } = options;
+  const recipeCatalog = candidateRecipes.map((recipe) => ({
+    id: recipe.id,
+    title: recipe.title,
+    description: recipe.description,
+    tags: recipe.tags.slice(0, 6),
+    ingredients: recipe.ingredients.slice(0, 8)
+  }));
+
+  const currentContext = currentRecipe
+    ? {
+        id: currentRecipe.id,
+        title: currentRecipe.title,
+        phase: currentSession.phase,
+        stepIndex: currentSession.stepIndex,
+        pendingPrompt: currentSession.pendingPrompt,
+        currentIngredient: currentSession.phase === "ingredients" ? currentRecipe.ingredients[currentSession.stepIndex] ?? null : null,
+        currentStep: currentSession.phase === "steps" ? currentRecipe.instructions[currentSession.stepIndex] ?? null : null
+      }
+    : {
+        id: null,
+        title: null,
+        phase: currentSession.phase,
+        stepIndex: currentSession.stepIndex,
+        pendingPrompt: currentSession.pendingPrompt,
+        currentIngredient: null,
+        currentStep: null
+      };
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    signal: AbortSignal.timeout(12000),
     method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-    body: form
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: QUERY_MODEL,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a query parser for a voice-first cooking assistant. Return JSON only. Choose the user's intended action and resolve references using the current recipe/session when possible. Never invent a recipe that is not in the candidate list. Prefer deterministic cooking controls like next_step, previous_step, get_ingredients, repeat_step, load_recipe, or search_recipe. Use recipe_question for questions about the current recipe content like time or temperature. Use substitution_question for swaps/replacements. If ambiguous, return clarify."
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            transcript,
+            currentContext,
+            candidateRecipes: recipeCatalog,
+            outputSchema: {
+              action: "search_recipe | load_recipe | get_ingredients | get_current_step | next_step | previous_step | repeat_step | substitution_question | recipe_question | clarify | general_help",
+              recipeId: "number | optional",
+              recipeTitle: "string | optional",
+              ingredient: "string | optional",
+              question: "string | optional",
+              questionType: "time | temperature | step_number | ingredient_amount | ingredient_identity | other | optional",
+              answerStyle: "ingredients | first_step | auto | optional",
+              confidence: "0..1"
+            }
+          })
+        }
+      ]
+    })
   });
 
-  if (!response.ok) throw new Error(`Transcription failed: ${await response.text()}`);
-  const data = (await response.json()) as { text?: string };
-  return data.text?.trim() || "";
+  if (!response.ok) return null;
+  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) return null;
+
+  try {
+    return sanitizeParsedQuery(JSON.parse(content));
+  } catch {
+    return null;
+  }
 }
 
 async function synthesizeSpeech(answerText: string, publicBaseUrl?: string): Promise<{ mimeType: string; url: string } | undefined> {
@@ -413,6 +597,25 @@ async function synthesizeSpeech(answerText: string, publicBaseUrl?: string): Pro
 
   const relativeUrl = `/app/api/audio/${fileName}`;
   return { mimeType: "audio/mpeg", url: publicBaseUrl ? `${publicBaseUrl}${relativeUrl}` : relativeUrl };
+}
+
+async function transcribeAudio(file: File): Promise<string> {
+  if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured.");
+
+  const form = new FormData();
+  form.set("model", TRANSCRIPTION_MODEL);
+  form.set("file", file, file.name || "audio-input");
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    signal: AbortSignal.timeout(30000),
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: form
+  });
+
+  if (!response.ok) throw new Error(`Transcription failed: ${await response.text()}`);
+  const data = (await response.json()) as { text?: string };
+  return data.text?.trim() || "";
 }
 
 async function finalizeResponse(options: {
@@ -524,6 +727,245 @@ export async function handleNextStep(
   });
 }
 
+async function executeParsedQuery(options: {
+  parsed: ParsedQuery;
+  transcript: string;
+  sessionId: string;
+  includeAudio: boolean;
+  publicBaseUrl?: string;
+  currentSession: VoiceSessionState;
+  currentRecipe: Recipe | null;
+  candidates: Recipe[];
+}): Promise<QueryResult | null> {
+  const { parsed, transcript, sessionId, includeAudio, publicBaseUrl, currentSession, currentRecipe, candidates } = options;
+  const resolvedRecipe = findRecipeByModelSelection(parsed, candidates, currentRecipe);
+
+  switch (parsed.action) {
+    case "get_ingredients": {
+      if (!resolvedRecipe) {
+        return {
+          ok: false,
+          transcript,
+          intent: "general_help",
+          answerText: "No recipe is loaded yet. Ask for a recipe first, then I can read the ingredients.",
+          session: sessionPayload(sessionId, currentSession)
+        };
+      }
+
+      return finalizeResponse({
+        transcript,
+        intent: "general_help",
+        answerText: summarizeIngredients(resolvedRecipe),
+        sessionId,
+        nextState: {
+          activeRecipeId: buildSessionRecipeId(resolvedRecipe),
+          phase: "ingredients",
+          stepIndex: currentRecipe?.id === resolvedRecipe.id && currentSession.phase === "ingredients" ? currentSession.stepIndex : 0,
+          pendingPrompt: null
+        },
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+
+    case "get_current_step": {
+      if (!resolvedRecipe) {
+        return {
+          ok: false,
+          transcript,
+          intent: "next_step",
+          answerText: "No recipe is loaded yet. Ask for a recipe first.",
+          session: sessionPayload(sessionId, currentSession)
+        };
+      }
+
+      const nextState: VoiceSessionState =
+        currentRecipe?.id === resolvedRecipe.id
+          ? { ...currentSession, pendingPrompt: null }
+          : { activeRecipeId: buildSessionRecipeId(resolvedRecipe), phase: "steps", stepIndex: 0, pendingPrompt: null };
+
+      const effectiveIndex = nextState.phase === "steps" ? nextState.stepIndex : 0;
+      return finalizeResponse({
+        transcript,
+        intent: "repeat_step",
+        answerText: answerForStep(resolvedRecipe, effectiveIndex),
+        sessionId,
+        nextState: { ...nextState, phase: "steps", stepIndex: effectiveIndex, pendingPrompt: null },
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+
+    case "next_step":
+      return handleNextStep(sessionId, { includeAudio, publicBaseUrl, transcript });
+
+    case "previous_step": {
+      if (!currentRecipe) {
+        return {
+          ok: false,
+          transcript,
+          intent: "general_help",
+          answerText: "No recipe is loaded yet. Ask for a recipe first.",
+          session: sessionPayload(sessionId, currentSession)
+        };
+      }
+      if (currentSession.phase !== "steps") {
+        return finalizeResponse({
+          transcript,
+          intent: "general_help",
+          answerText: answerForStep(currentRecipe, 0),
+          sessionId,
+          nextState: { ...currentSession, phase: "steps", stepIndex: 0, pendingPrompt: null },
+          includeAudio,
+          publicBaseUrl
+        });
+      }
+      if (currentSession.stepIndex <= 0) {
+        return finalizeResponse({
+          transcript,
+          intent: "general_help",
+          answerText: "You’re on the first step already.",
+          sessionId,
+          nextState: { ...currentSession, pendingPrompt: null },
+          includeAudio,
+          publicBaseUrl
+        });
+      }
+      const previousIndex = currentSession.stepIndex - 1;
+      return finalizeResponse({
+        transcript,
+        intent: "general_help",
+        answerText: answerForStep(currentRecipe, previousIndex),
+        sessionId,
+        nextState: { ...currentSession, phase: "steps", stepIndex: previousIndex, pendingPrompt: null },
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+
+    case "repeat_step": {
+      if (!currentRecipe) {
+        return {
+          ok: false,
+          transcript,
+          intent: "repeat_step",
+          answerText: "No recipe is loaded yet. Ask for a recipe first.",
+          session: sessionPayload(sessionId, currentSession)
+        };
+      }
+      return finalizeResponse({
+        transcript,
+        intent: "repeat_step",
+        answerText: answerForCurrentItem(currentRecipe, currentSession),
+        sessionId,
+        nextState: { ...currentSession, pendingPrompt: null },
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+
+    case "substitution_question": {
+      return finalizeResponse({
+        transcript,
+        intent: "substitution_question",
+        answerText: buildSubstitutionAnswer(parsed.question || transcript, currentRecipe ?? resolvedRecipe),
+        sessionId,
+        nextState: { ...currentSession, pendingPrompt: null },
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+
+    case "recipe_question": {
+      const recipe = currentRecipe ?? resolvedRecipe;
+      if (!recipe) {
+        return {
+          ok: false,
+          transcript,
+          intent: "general_help",
+          answerText: "No recipe is loaded yet. Ask for a recipe first.",
+          session: sessionPayload(sessionId, currentSession)
+        };
+      }
+
+      const recipeQuestionState: VoiceSessionState =
+        currentRecipe?.id === recipe.id
+          ? currentSession
+          : { activeRecipeId: buildSessionRecipeId(recipe), phase: "steps", stepIndex: 0, pendingPrompt: null };
+
+      const contextualAnswer = buildContextualAnswer(parsed.question || transcript, recipe, recipeQuestionState);
+      if (contextualAnswer) {
+        const nextState: VoiceSessionState = currentRecipe?.id === recipe.id ? contextualAnswer.nextState : recipeQuestionState;
+        return finalizeResponse({
+          transcript,
+          intent: "general_help",
+          answerText: contextualAnswer.answerText,
+          sessionId,
+          nextState,
+          includeAudio,
+          publicBaseUrl
+        });
+      }
+      return finalizeResponse({
+        transcript,
+        intent: "general_help",
+        answerText: answerForCurrentItem(recipe, recipeQuestionState),
+        sessionId,
+        nextState: currentRecipe?.id === recipe.id ? { ...currentSession, pendingPrompt: null } : recipeQuestionState,
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+
+    case "search_recipe":
+    case "load_recipe": {
+      if (!resolvedRecipe) return null;
+      const wantsFirstStep = parsed.action === "load_recipe" || parsed.answerStyle === "first_step";
+      if (wantsFirstStep) {
+        return finalizeResponse({
+          transcript,
+          intent: "load_recipe",
+          answerText: answerForStep(resolvedRecipe, 0),
+          sessionId,
+          nextState: { activeRecipeId: buildSessionRecipeId(resolvedRecipe), phase: "steps", stepIndex: 0, pendingPrompt: null },
+          includeAudio,
+          publicBaseUrl
+        });
+      }
+      return finalizeResponse({
+        transcript,
+        intent: "recipe_lookup",
+        answerText: `I found ${resolvedRecipe.title}. Want ingredients or the first step?`,
+        sessionId,
+        nextState: {
+          activeRecipeId: buildSessionRecipeId(resolvedRecipe),
+          phase: "ingredients",
+          stepIndex: 0,
+          pendingPrompt: "ingredients_or_first_step"
+        },
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+
+    case "clarify": {
+      return finalizeResponse({
+        transcript,
+        intent: "general_help",
+        answerText: currentRecipe ? "Do you want ingredients, the current step, or the next step?" : "Do you want to load a recipe, hear ingredients, or start with the first step?",
+        sessionId,
+        nextState: currentSession,
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+
+    case "general_help":
+    default:
+      return null;
+  }
+}
+
 export async function handleTextQuery(options: {
   transcript: string;
   publicBaseUrl?: string;
@@ -612,6 +1054,32 @@ export async function handleTextQuery(options: {
       includeAudio,
       publicBaseUrl
     });
+  }
+
+  const candidates = rankRecipesForModel(cleanedTranscript, listRecipes());
+  try {
+    const parsed = await interpretQueryWithModel({
+      transcript: cleanedTranscript,
+      currentSession,
+      currentRecipe,
+      candidateRecipes: candidates
+    });
+
+    if (parsed) {
+      const executed = await executeParsedQuery({
+        parsed,
+        transcript: cleanedTranscript,
+        sessionId,
+        includeAudio,
+        publicBaseUrl,
+        currentSession,
+        currentRecipe,
+        candidates
+      });
+      if (executed) return executed;
+    }
+  } catch {
+    // Fall through to deterministic heuristics.
   }
 
   const resolvedRecipe = findRecipeFromTranscript(cleanedTranscript) ?? currentRecipe;
