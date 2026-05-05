@@ -226,9 +226,9 @@ function extractRecipeRequestLabel(transcript: string): string {
   const text = transcript.trim();
   return text
     .replace(/^(i want to cook|i want to make|how do i make|how to make|recipe for|load|open|start)\s+/i, "")
+    .replace(/[?!.]+$/, "")
     .replace(/\brecipe\b$/i, "")
     .replace(/^(a|an|the)\s+/i, "")
-    .replace(/[?!.]+$/, "")
     .trim() || "that recipe";
 }
 
@@ -240,8 +240,13 @@ function missingRecipeAnswer(requestedTitle: string, transcript: string, current
 }
 
 function logQueryDecision(event: string, details: Record<string, unknown>) {
+  if (process.env.DEBUG_AUDIO_QUERY !== "1") return;
+  const redactedDetails = {
+    ...details,
+    transcript: typeof details.transcript === "string" ? `${details.transcript.slice(0, 120)}${details.transcript.length > 120 ? "…" : ""}` : details.transcript
+  };
   try {
-    console.log(`[audio-query] ${event} ${JSON.stringify(details)}`);
+    console.log(`[audio-query] ${event} ${JSON.stringify(redactedDetails)}`);
   } catch {
     console.log(`[audio-query] ${event}`);
   }
@@ -337,10 +342,10 @@ function buildContextualAnswer(
   if (!currentText) return null;
 
   if (/\b(degrees?|temperature|hot)\b/.test(text)) {
-    const degreeMatch = currentText.match(/(\d{2,3})\s*(degrees?|°\s*[FC]|[FC])/i);
+    const degreeMatch = currentText.match(/(\d{2,3})\s*(degrees?|°\s*[FC]\b|\b[FC]\b)/i);
     if (degreeMatch) {
       const unit = degreeMatch[2].replace(/\s+/g, "");
-      const spokenUnit = /degrees?/i.test(unit) ? "degrees" : unit.toUpperCase().replace("°", " °");
+      const spokenUnit = /degrees?/i.test(unit) ? "degrees" : unit.toUpperCase().replace("°", " ");
       return { answerText: `It says ${degreeMatch[1]} ${spokenUnit}.`, nextState: state };
     }
     return {
@@ -527,7 +532,10 @@ function sanitizeParsedQuery(value: unknown): ParsedQuery | null {
     question: typeof candidate.question === "string" ? candidate.question.trim() : undefined,
     questionType,
     answerStyle,
-    confidence: typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence) ? candidate.confidence : undefined
+    confidence:
+      typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence) && candidate.confidence >= 0 && candidate.confidence <= 1
+        ? candidate.confidence
+        : undefined
   };
 }
 
@@ -1010,8 +1018,7 @@ async function executeParsedQuery(options: {
     case "search_recipe":
     case "load_recipe": {
       const transcriptRequestedTitle = extractRecipeRequestLabel(transcript);
-      const explicitRequestedTitle = transcriptRequestedTitle || parsed.recipeTitle?.trim() || "that recipe";
-      const closestMatch = explicitRequestedTitle ? findClosestRecipeByTitle(explicitRequestedTitle, listRecipes()) : null;
+      const explicitRequestedTitle = transcriptRequestedTitle !== "that recipe" ? transcriptRequestedTitle : parsed.recipeTitle?.trim() || "that recipe";
       const resolvedMatchScore = resolvedRecipe ? recipeSimilarityScore(explicitRequestedTitle, resolvedRecipe) : 0;
 
       if (!resolvedRecipe || resolvedMatchScore < 70) {
