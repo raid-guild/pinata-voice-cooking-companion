@@ -73,7 +73,7 @@ This is the main orchestration layer for spoken and typed cooking interactions.
 Responsibilities:
 - validate incoming audio files
 - transcribe audio to text
-- detect cooking intent from transcript text
+- interpret typed/spoken requests into structured cooking actions
 - read and update session state
 - resolve recipe lookup / step progression / repeat / substitution questions
 - synthesize answer text to MP3 when audio is requested
@@ -410,21 +410,36 @@ Output behavior:
 
 ## Intent and State Handling
 
-The cooking interaction is intentionally lightweight and deterministic.
+The cooking interaction now uses a hybrid model.
 
 It is driven by:
-- string normalization
-- keyword/phrase detection
-- recipe title matching
+- string normalization and deterministic state handling
+- a small model-backed query interpreter that maps requests into structured actions
+- recipe title matching and recipe candidate ranking
 - current session state
 - pending disambiguation prompts
+- heuristic fallback behavior if the model path fails or returns unusable output
 
-### Supported intent categories
+### Public response intent categories
 - `recipe_lookup`
 - `load_recipe`
 - `next_step`
 - `substitution_question`
 - `repeat_step`
+- `general_help`
+
+### Internal interpreter action categories
+The model-backed interpreter can emit structured actions such as:
+- `search_recipe`
+- `load_recipe`
+- `get_ingredients`
+- `get_current_step`
+- `next_step`
+- `previous_step`
+- `repeat_step`
+- `substitution_question`
+- `recipe_question`
+- `clarify`
 - `general_help`
 
 ### Examples of supported behaviors
@@ -441,7 +456,7 @@ It is driven by:
   - what comes next?
 - answer simple substitution prompts
 
-This is **not** a freeform agentic reasoning loop. It is a structured cooking assistant flow built on deterministic state and heuristics.
+This is **not** a freeform agentic reasoning loop. It is a structured cooking assistant flow where a small model interprets the request into a constrained action, and deterministic code owns recipe facts, state transitions, and final response shaping.
 
 ---
 
@@ -542,9 +557,10 @@ This is acceptable in the current design because:
 ## Current Architectural Tradeoffs
 
 ### Strengths
-- simple implementation
 - narrow and predictable state model
 - persistent step/recipe continuity across requests
+- better handling of natural-language variation than a regex-only router
+- deterministic ownership of recipe facts and state transitions
 - no need for heavyweight chat memory
 - straightforward client contract
 - fetchable audio URL works well for web and embedded consumers
@@ -552,7 +568,8 @@ This is acceptable in the current design because:
 ### Limitations
 - generated audio is file-backed rather than streamed directly
 - old audio URLs can expire after cleanup
-- recipe matching is heuristic, not semantic
+- the interpreter still depends on prompt quality and external model availability
+- recipe matching/recommendation is still partly heuristic
 - no transcript/audit history for voice turns
 - no local STT/TTS fallback if OpenAI is unavailable
 
