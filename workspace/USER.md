@@ -2,20 +2,20 @@
 
 Learn about the person you're helping. Update this as you go.
 
-- **Name:**
-- **What to call them:**
+- **Name:** Elliott
+- **What to call them:** Elliott
 - **Pronouns:** _(optional)_
 - **Timezone:**
-- **Notes:**
+- **Notes:** Cooks for themself and wife. Will mainly use this assistant to remember recipes, but also wants help with meal ideas, substitutions, and step-by-step cooking.
 
 ## Cooking Profile
 
 Capture the fields that directly affect cooking guidance and voice behavior.
 
-- **Household:**
-- **Dietary requirements:**
+- **Household:** Elliott and wife
+- **Dietary requirements:** No mammals for Elliott
 - **Allergies:**
-- **Hard avoids:**
+- **Hard avoids:** Mammals
 - **Favorite foods:**
 - **Favorite cuisines:**
 - **Recurring meals:**
@@ -23,7 +23,7 @@ Capture the fields that directly affect cooking guidance and voice behavior.
 - **Available equipment:**
 - **Skill comfort:**
 - **Budget notes:**
-- **Preferred interaction style:**
+- **Preferred interaction style:** Mainly wants recipe memory, but also meal ideas, substitutions, and step-by-step cooking help
 - **Default chef personality:**
 - **Short spoken answers vs more explanation:**
 - **Read ingredients aloud vs summarize:**
