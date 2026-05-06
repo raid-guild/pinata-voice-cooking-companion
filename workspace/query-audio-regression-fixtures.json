@@ -1,0 +1,30 @@
+[
+  {
+    "name": "query-audio next_step advances loaded recipe",
+    "sessionId": "audio-reg-next-step",
+    "beforeQuery": ["load tuna noodle casserole"],
+    "request": {
+      "kind": "json",
+      "body": { "inputMode": "next_step", "sessionId": "audio-reg-next-step" }
+    },
+    "expect": {
+      "ok": true,
+      "intent": "next_step",
+      "answerIncludes": ["Step 2"],
+      "sessionPhase": "steps"
+    }
+  },
+  {
+    "name": "query-audio next_step without recipe reports missing recipe",
+    "sessionId": "audio-reg-missing-recipe",
+    "request": {
+      "kind": "json",
+      "body": { "inputMode": "next_step", "sessionId": "audio-reg-missing-recipe" }
+    },
+    "expect": {
+      "ok": false,
+      "answerIncludes": ["No recipe is loaded yet"],
+      "sessionPhase": "ingredients"
+    }
+  }
+]
