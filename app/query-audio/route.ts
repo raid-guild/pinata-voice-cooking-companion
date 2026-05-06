@@ -4,6 +4,21 @@ import { fallbackSessionId, sessionIdFromFormRequest, sessionIdFromJsonRequest }
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+function summarizeAudioError(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes("openai_api_key")) return "Audio processing is not configured yet.";
+  if (lower.includes("audio file is too short") || lower.includes("audio_too_short")) {
+    return "That recording was too short. Hold the button a little longer, then try again.";
+  }
+  if (lower.includes("could not be decoded") || lower.includes("format is not supported")) {
+    return "That audio recording couldn’t be decoded. Please try again.";
+  }
+  if (lower.includes("too large") || lower.includes("payload too large")) {
+    return "That audio file is too large.";
+  }
+  return "Sorry, I couldn’t process that audio request.";
+}
+
 export async function POST(request: Request) {
   const contentType = request.headers.get("content-type") || "";
 
@@ -37,9 +52,7 @@ export async function POST(request: Request) {
       return Response.json(
         {
           ok: false,
-          answerText: message.includes("OPENAI_API_KEY")
-            ? "Audio processing is not configured yet."
-            : "Sorry, I couldn’t process that audio request.",
+          answerText: summarizeAudioError(message),
           session: {
             id: sessionId,
             activeRecipeId: null,
@@ -91,6 +104,13 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log("[query-audio] received audio upload", {
+      name: audioInput.name,
+      type: audioInput.type,
+      size: audioInput.size,
+      sessionId
+    });
+
     const result = await handleAudioQuery({
       file: audioInput,
       sessionId
@@ -103,9 +123,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ok: false,
-        answerText: message.includes("OPENAI_API_KEY")
-          ? "Audio processing is not configured yet."
-          : "Sorry, I couldn’t process that audio request.",
+        answerText: summarizeAudioError(message),
         session: {
           id: sessionId,
           activeRecipeId: null,
