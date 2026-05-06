@@ -42,7 +42,7 @@
 .header .answerText,
 .header .axisHint,
 .header .cameraReadout {
-  margin-top: 8px;
+  margin: 8px auto 0;
   max-width: 42rem;
 }
 
@@ -412,6 +412,7 @@
   .sceneWrap,
   .device {
     width: min(100%, 440px);
+    margin-inline: auto;
   }
 
   .mainLabel {

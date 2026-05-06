@@ -97,26 +97,6 @@ function ledVisual(state: LedState, timeSeconds: number) {
   }
 }
 
-function getLowestWorldY(root: THREE.Object3D): number {
-  root.updateWorldMatrix(true, true);
-  let lowestY = Number.POSITIVE_INFINITY;
-  const point = new THREE.Vector3();
-
-  root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    const geometry = object.geometry;
-    const position = geometry.getAttribute("position");
-    if (!position) return;
-
-    for (let index = 0; index < position.count; index += 1) {
-      point.fromBufferAttribute(position, index).applyMatrix4(object.matrixWorld);
-      if (point.y < lowestY) lowestY = point.y;
-    }
-  });
-
-  return Number.isFinite(lowestY) ? lowestY : 0;
-}
-
 function cadToScene(x: number, y: number, z: number) {
   return new THREE.Vector3(x, z, y);
 }
@@ -196,6 +176,9 @@ export default function SimulatedHardwarePage() {
     position: new THREE.Vector3(10.96, 3.56, 9.21),
     target: new THREE.Vector3(3.2, 0.95, 2.1)
   });
+  const cameraUnlockedRef = useRef(cameraUnlocked);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const axisOverlayRef = useRef<THREE.Group | null>(null);
 
   const sessionId = useMemo(() => getOrCreateSessionId(), []);
 
@@ -206,6 +189,12 @@ export default function SimulatedHardwarePage() {
   useEffect(() => {
     ledStateRef.current = ledState;
   }, [ledState]);
+
+  useEffect(() => {
+    cameraUnlockedRef.current = cameraUnlocked;
+    if (controlsRef.current) controlsRef.current.enabled = cameraUnlocked;
+    if (axisOverlayRef.current) axisOverlayRef.current.visible = cameraUnlocked;
+  }, [cameraUnlocked]);
 
   const setErrorState = useCallback((message: string) => {
     if (errorResetTimeoutRef.current) window.clearTimeout(errorResetTimeoutRef.current);
@@ -575,8 +564,10 @@ export default function SimulatedHardwarePage() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mountEl.appendChild(renderer.domElement);
 
+    let gltfCancelled = false;
+
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enabled = cameraUnlocked;
+    controls.enabled = cameraUnlockedRef.current;
     controls.enablePan = false;
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
@@ -588,12 +579,14 @@ export default function SimulatedHardwarePage() {
     controls.maxPolarAngle = 1.45;
     controls.target.copy(cameraPoseRef.current.target);
     controls.update();
+    controlsRef.current = controls;
 
     const ambient = new THREE.HemisphereLight(0xffffff, 0x9a7b56, 1.35);
     scene.add(ambient);
 
     const axisOverlay = buildAxisOverlay();
-    axisOverlay.visible = cameraUnlocked;
+    axisOverlay.visible = cameraUnlockedRef.current;
+    axisOverlayRef.current = axisOverlay;
     scene.add(axisOverlay);
 
     const key = new THREE.DirectionalLight(0xffffff, 2.2);
@@ -625,6 +618,15 @@ export default function SimulatedHardwarePage() {
     gltfLoader.load(
       modelUrl,
       (gltf) => {
+        if (gltfCancelled) {
+          gltf.scene.traverse((object) => {
+            if (object instanceof THREE.Mesh) {
+              object.geometry.dispose();
+            }
+          });
+          return;
+        }
+
         const caseModel = gltf.scene;
         const bounds = new THREE.Box3().setFromObject(caseModel);
         const size = bounds.getSize(new THREE.Vector3());
@@ -638,11 +640,6 @@ export default function SimulatedHardwarePage() {
           if (object instanceof THREE.Mesh) {
             object.castShadow = true;
             object.receiveShadow = true;
-            if (Array.isArray(object.material)) {
-              object.material = object.material.map((material) => material.clone());
-            } else if (object.material) {
-              object.material = object.material.clone();
-            }
           }
         });
 
@@ -652,12 +649,14 @@ export default function SimulatedHardwarePage() {
         caseModel.position.z -= scaledBounds.min.z;
         caseGroup.add(caseModel);
 
-        const caseBottomY = getLowestWorldY(caseModel);
+        const caseBottomY = new THREE.Box3().setFromObject(caseModel).min.y;
         floor.position.y = caseBottomY;
         floorShadow.position.y = caseBottomY - 0.002;
       },
       undefined,
       () => {
+        if (gltfCancelled) return;
+
         const fallbackBody = new THREE.Mesh(
           new THREE.BoxGeometry(4.6, 3.2, 3.1),
           new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.88, metalness: 0.06 })
@@ -666,7 +665,7 @@ export default function SimulatedHardwarePage() {
         fallbackBody.receiveShadow = true;
         caseGroup.add(fallbackBody);
 
-        const caseBottomY = getLowestWorldY(fallbackBody);
+        const caseBottomY = new THREE.Box3().setFromObject(fallbackBody).min.y;
         floor.position.y = caseBottomY;
         floorShadow.position.y = caseBottomY - 0.002;
       }
@@ -909,7 +908,7 @@ export default function SimulatedHardwarePage() {
     }
 
     function onPointerMove(event: PointerEvent) {
-      if (cameraUnlocked) {
+      if (cameraUnlockedRef.current) {
         renderer.domElement.style.cursor = "grab";
         return;
       }
@@ -919,7 +918,7 @@ export default function SimulatedHardwarePage() {
     }
 
     function onPointerDown(event: PointerEvent) {
-      if (cameraUnlocked) {
+      if (cameraUnlockedRef.current) {
         renderer.domElement.style.cursor = "grabbing";
         return;
       }
@@ -954,7 +953,7 @@ export default function SimulatedHardwarePage() {
     }
 
     function onPointerUp() {
-      if (cameraUnlocked) {
+      if (cameraUnlockedRef.current) {
         renderer.domElement.style.cursor = "grab";
         return;
       }
@@ -962,7 +961,7 @@ export default function SimulatedHardwarePage() {
     }
 
     function onPointerLeave() {
-      if (cameraUnlocked) {
+      if (cameraUnlockedRef.current) {
         renderer.domElement.style.cursor = "default";
         return;
       }
@@ -973,7 +972,7 @@ export default function SimulatedHardwarePage() {
     }
 
     function onPointerCancel() {
-      if (cameraUnlocked) {
+      if (cameraUnlockedRef.current) {
         renderer.domElement.style.cursor = "default";
         return;
       }
@@ -1017,26 +1016,29 @@ export default function SimulatedHardwarePage() {
       controls.update();
       cameraPoseRef.current.position.copy(camera.position);
       cameraPoseRef.current.target.copy(controls.target);
-      setCameraReadout((current) => {
-        const next = {
-          position: {
-            x: Number(camera.position.x.toFixed(3)),
-            y: Number(camera.position.y.toFixed(3)),
-            z: Number(camera.position.z.toFixed(3))
-          },
-          target: {
-            x: Number(controls.target.x.toFixed(3)),
-            y: Number(controls.target.y.toFixed(3)),
-            z: Number(controls.target.z.toFixed(3))
+      if (cameraUnlockedRef.current) {
+        const px = Number(camera.position.x.toFixed(3));
+        const py = Number(camera.position.y.toFixed(3));
+        const pz = Number(camera.position.z.toFixed(3));
+        const tx = Number(controls.target.x.toFixed(3));
+        const ty = Number(controls.target.y.toFixed(3));
+        const tz = Number(controls.target.z.toFixed(3));
+        setCameraReadout((current) => {
+          if (
+            current.position.x === px && current.position.y === py && current.position.z === pz &&
+            current.target.x === tx && current.target.y === ty && current.target.z === tz
+          ) {
+            return current;
           }
-        };
-        return JSON.stringify(current) === JSON.stringify(next) ? current : next;
-      });
+          return { position: { x: px, y: py, z: pz }, target: { x: tx, y: ty, z: tz } };
+        });
+      }
       renderer.render(scene, camera);
     };
     animate();
 
     return () => {
+      gltfCancelled = true;
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", resize);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
@@ -1046,6 +1048,8 @@ export default function SimulatedHardwarePage() {
       renderer.domElement.removeEventListener("pointercancel", onPointerCancel);
       renderer.domElement.removeEventListener("contextmenu", suppressNativeContextMenu);
       controls.dispose();
+      controlsRef.current = null;
+      axisOverlayRef.current = null;
       if (mountEl.contains(renderer.domElement)) mountEl.removeChild(renderer.domElement);
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh) {
@@ -1060,7 +1064,7 @@ export default function SimulatedHardwarePage() {
       });
       renderer.dispose();
     };
-  }, [cameraUnlocked, handleTalkStart, handleTalkEnd, sendNextStep, useFallback]);
+  }, [handleTalkStart, handleTalkEnd, sendNextStep, useFallback]);
 
   const micHelpText =
     micPermissionState === "unknown"
