@@ -14,7 +14,7 @@ Capture the fields that directly affect cooking guidance and voice behavior.
 
 - **Household:** Elliott and wife
 - **Dietary requirements:** No mammals for Elliott
-- **Allergies:**
+- **Allergies:** None noted
 - **Hard avoids:** Mammals
 - **Favorite foods:**
 - **Favorite cuisines:**
