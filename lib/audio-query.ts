@@ -285,6 +285,38 @@ function isRepeatRequest(text: string): boolean {
   return normalized.includes("repeat") || normalized.includes("again");
 }
 
+function isWhereAmIRequest(text: string): boolean {
+  return /\b(where am i|where are we|what step am i on|what ingredient am i on|which ingredient am i on)\b/.test(normalize(text));
+}
+
+function isStartOverRequest(text: string): boolean {
+  return /\b(start over|from the top|begin again|restart)\b/.test(normalize(text));
+}
+
+function isNextIngredientRequest(text: string): boolean {
+  return /\b(next ingredient|what s the next ingredient|what is the next ingredient)\b/.test(normalize(text));
+}
+
+function isPreviousIngredientRequest(text: string): boolean {
+  return /\b(previous ingredient|last ingredient|ingredient before|go back an ingredient)\b/.test(normalize(text));
+}
+
+function extractRequestedStepIndex(text: string): number | null {
+  const normalized = normalize(text);
+  const match = normalized.match(/\b(?:go to|jump to|take me to|read|show me)?\s*step\s+(\d{1,3})\b/);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1] || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed - 1 : null;
+}
+
+function extractRequestedIngredientIndex(text: string): number | null {
+  const normalized = normalize(text);
+  const match = normalized.match(/\b(?:go to|jump to|take me to|read|show me)?\s*ingredient\s+(\d{1,3})\b/);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1] || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed - 1 : null;
+}
+
 function sessionPayload(sessionId: string, state: VoiceSessionState) {
   return {
     id: sessionId,
@@ -339,6 +371,40 @@ function buildContextualAnswer(
 ): { answerText: string; nextState: VoiceSessionState } | null {
   const text = normalize(transcript);
   const currentText = state.phase === "ingredients" ? recipe.ingredients[state.stepIndex]?.trim() || "" : recipe.instructions[state.stepIndex]?.trim() || "";
+  if (/\b(where am i|where are we|what step am i on|what ingredient am i on|which ingredient am i on)\b/.test(text)) {
+    return {
+      answerText:
+        state.phase === "ingredients"
+          ? `You’re on ingredient ${state.stepIndex + 1}.`
+          : `You’re on step ${state.stepIndex + 1}.`,
+      nextState: state
+    };
+  }
+
+  if (/\b(start over|from the top|begin again|restart)\b/.test(text)) {
+    return {
+      answerText: state.phase === "ingredients" ? (ingredientLine(recipe, 0) ?? `I have ${recipe.title}, but there are no saved ingredients yet.`) : answerForStep(recipe, 0),
+      nextState: { ...state, stepIndex: 0, pendingPrompt: null }
+    };
+  }
+
+  if (state.phase === "ingredients" && /\b(next ingredient|what s the next ingredient|what is the next ingredient)\b/.test(text)) {
+    const nextIndex = state.stepIndex + 1;
+    const nextIngredient = ingredientLine(recipe, nextIndex);
+    return nextIngredient
+      ? { answerText: nextIngredient, nextState: { ...state, stepIndex: nextIndex, pendingPrompt: null } }
+      : { answerText: `You’re at the end of the ingredient list for ${recipe.title}.`, nextState: state };
+  }
+
+  if (state.phase === "ingredients" && /\b(previous ingredient|last ingredient|ingredient before|go back an ingredient)\b/.test(text)) {
+    if (state.stepIndex <= 0) return { answerText: "You’re on the first ingredient already.", nextState: state };
+    const previousIndex = state.stepIndex - 1;
+    return {
+      answerText: ingredientLine(recipe, previousIndex) ?? "I don’t have the previous ingredient saved.",
+      nextState: { ...state, stepIndex: previousIndex, pendingPrompt: null }
+    };
+  }
+
   if (!currentText) return null;
 
   if (/\b(degrees?|temperature|hot)\b/.test(text)) {
@@ -369,7 +435,7 @@ function buildContextualAnswer(
     };
   }
 
-  if (/\b(after that|what next|what do i do after that|then what)\b/.test(text) && state.phase === "steps") {
+  if (/\b(after that|what next|what comes after this|what comes next|what do i do after that|then what)\b/.test(text) && state.phase === "steps") {
     const nextIndex = state.stepIndex + 1;
     const nextStep = spokenStep(recipe, nextIndex);
     return nextStep
@@ -383,7 +449,7 @@ function buildContextualAnswer(
         };
   }
 
-  if (/\b(previous step|step before|what was the last step|before that|go back|back up|previous)\b/.test(text) && state.phase === "steps") {
+  if (/\b(previous step|step before|what comes before this|what was the last step|before that|go back|back up|previous)\b/.test(text) && state.phase === "steps") {
     if (state.stepIndex <= 0) return { answerText: "You’re on the first step already.", nextState: state };
     const previousIndex = state.stepIndex - 1;
     const previousStep = spokenStep(recipe, previousIndex);
@@ -1124,6 +1190,60 @@ export async function handleTextQuery(options: {
   const currentSession = getVoiceSession(sessionId);
   const currentRecipe = findRecipeBySessionId(currentSession.activeRecipeId);
 
+  if (currentRecipe && currentSession.phase === "ingredients") {
+    const requestedIngredientIndex = extractRequestedIngredientIndex(cleanedTranscript);
+    if (requestedIngredientIndex != null) {
+      const requestedIngredient = ingredientLine(currentRecipe, requestedIngredientIndex);
+      return finalizeResponse({
+        transcript: cleanedTranscript,
+        intent: "general_help",
+        answerText: requestedIngredient ?? `I only have ${currentRecipe.ingredients.length} ingredients saved for ${currentRecipe.title}.`,
+        sessionId,
+        nextState: requestedIngredient ? { ...currentSession, stepIndex: requestedIngredientIndex, pendingPrompt: null } : currentSession,
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+  }
+
+  if (currentRecipe && currentSession.phase === "ingredients" && isNextIngredientRequest(cleanedTranscript)) {
+    const nextIndex = currentSession.stepIndex + 1;
+    const nextIngredient = ingredientLine(currentRecipe, nextIndex);
+    return finalizeResponse({
+      transcript: cleanedTranscript,
+      intent: "general_help",
+      answerText: nextIngredient ?? `You’re at the end of the ingredient list for ${currentRecipe.title}.`,
+      sessionId,
+      nextState: nextIngredient ? { ...currentSession, stepIndex: nextIndex, pendingPrompt: null } : currentSession,
+      includeAudio,
+      publicBaseUrl
+    });
+  }
+
+  if (currentRecipe && currentSession.phase === "ingredients" && isPreviousIngredientRequest(cleanedTranscript)) {
+    if (currentSession.stepIndex <= 0) {
+      return finalizeResponse({
+        transcript: cleanedTranscript,
+        intent: "general_help",
+        answerText: "You’re on the first ingredient already.",
+        sessionId,
+        nextState: currentSession,
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+    const previousIndex = currentSession.stepIndex - 1;
+    return finalizeResponse({
+      transcript: cleanedTranscript,
+      intent: "general_help",
+      answerText: ingredientLine(currentRecipe, previousIndex) ?? "I don’t have the previous ingredient saved.",
+      sessionId,
+      nextState: { ...currentSession, stepIndex: previousIndex, pendingPrompt: null },
+      includeAudio,
+      publicBaseUrl
+    });
+  }
+
   if (!currentRecipe && isIngredientRequest(cleanedTranscript)) {
     return {
       ok: false,
@@ -1163,6 +1283,69 @@ export async function handleTextQuery(options: {
       answerText: answerForStep(currentRecipe, 0),
       sessionId,
       nextState: { ...currentSession, phase: "steps", stepIndex: 0, pendingPrompt: null },
+      includeAudio,
+      publicBaseUrl
+    });
+  }
+
+  if (currentRecipe && isWhereAmIRequest(cleanedTranscript)) {
+    return finalizeResponse({
+      transcript: cleanedTranscript,
+      intent: "general_help",
+      answerText: currentSession.phase === "ingredients" ? `You’re on ingredient ${currentSession.stepIndex + 1}.` : `You’re on step ${currentSession.stepIndex + 1}.`,
+      sessionId,
+      nextState: currentSession,
+      includeAudio,
+      publicBaseUrl
+    });
+  }
+
+  if (currentRecipe && isStartOverRequest(cleanedTranscript)) {
+    const nextState: VoiceSessionState = { ...currentSession, stepIndex: 0, pendingPrompt: null };
+    return finalizeResponse({
+      transcript: cleanedTranscript,
+      intent: "general_help",
+      answerText: nextState.phase === "ingredients" ? (ingredientLine(currentRecipe, 0) ?? `I have ${currentRecipe.title}, but there are no saved ingredients yet.`) : answerForStep(currentRecipe, 0),
+      sessionId,
+      nextState,
+      includeAudio,
+      publicBaseUrl
+    });
+  }
+
+  if (currentRecipe && currentSession.phase === "ingredients" && isNextIngredientRequest(cleanedTranscript)) {
+    const nextIndex = currentSession.stepIndex + 1;
+    const nextIngredient = ingredientLine(currentRecipe, nextIndex);
+    return finalizeResponse({
+      transcript: cleanedTranscript,
+      intent: "general_help",
+      answerText: nextIngredient ?? `You’re at the end of the ingredient list for ${currentRecipe.title}.`,
+      sessionId,
+      nextState: nextIngredient ? { ...currentSession, stepIndex: nextIndex, pendingPrompt: null } : currentSession,
+      includeAudio,
+      publicBaseUrl
+    });
+  }
+
+  if (currentRecipe && currentSession.phase === "ingredients" && isPreviousIngredientRequest(cleanedTranscript)) {
+    if (currentSession.stepIndex <= 0) {
+      return finalizeResponse({
+        transcript: cleanedTranscript,
+        intent: "general_help",
+        answerText: "You’re on the first ingredient already.",
+        sessionId,
+        nextState: currentSession,
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+    const previousIndex = currentSession.stepIndex - 1;
+    return finalizeResponse({
+      transcript: cleanedTranscript,
+      intent: "general_help",
+      answerText: ingredientLine(currentRecipe, previousIndex) ?? "I don’t have the previous ingredient saved.",
+      sessionId,
+      nextState: { ...currentSession, stepIndex: previousIndex, pendingPrompt: null },
       includeAudio,
       publicBaseUrl
     });
