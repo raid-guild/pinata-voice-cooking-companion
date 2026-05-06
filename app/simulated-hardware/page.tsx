@@ -236,8 +236,19 @@ export default function SimulatedHardwarePage() {
 
       try {
         const formData = new FormData();
-        const extension = blob.type.includes("mpeg") ? "mp3" : "webm";
-        formData.append("audio", new File([blob], `query-audio.${extension}`, { type: blob.type || "audio/webm" }));
+        const normalizedType = (blob.type || "audio/webm").split(";")[0]?.trim().toLowerCase() || "audio/webm";
+        const extensionByMime: Record<string, string> = {
+          "audio/mpeg": "mp3",
+          "audio/mp4": "mp4",
+          "audio/x-m4a": "m4a",
+          "audio/aac": "aac",
+          "audio/x-aac": "aac",
+          "audio/wav": "wav",
+          "audio/ogg": "ogg",
+          "audio/webm": "webm"
+        };
+        const extension = extensionByMime[normalizedType] ?? "webm";
+        formData.append("audio", new File([blob], `query-audio.${extension}`, { type: normalizedType }));
         formData.append("sessionId", sessionIdRef.current);
 
         const response = await fetch("/app/query-audio", {
@@ -267,8 +278,18 @@ export default function SimulatedHardwarePage() {
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const preferredMimeTypes = [
+        "audio/mp4",
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/x-m4a",
+        "audio/aac",
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/ogg"
+      ];
+      const mimeType = preferredMimeTypes.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "";
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
 
       recorder.addEventListener("dataavailable", (event) => {
@@ -278,7 +299,7 @@ export default function SimulatedHardwarePage() {
       recorder.addEventListener("stop", async () => {
         stopMediaTracks();
         mediaRecorderRef.current = null;
-        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
         audioChunksRef.current = [];
         if (blob.size > 0) {
           await uploadRecording(blob);

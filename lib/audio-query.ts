@@ -104,9 +104,20 @@ const DISH_TYPE_WORDS = new Set([
 
 function isSupportedAudioFile(file: File): boolean {
   const normalizedType = file.type.split(";")[0]?.trim().toLowerCase() || "";
-  if (["audio/wav", "audio/mpeg", "audio/webm", "audio/ogg"].includes(normalizedType)) return true;
+  if (["audio/wav", "audio/mpeg", "audio/webm", "audio/ogg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/x-aac"].includes(normalizedType)) {
+    return true;
+  }
+  if (normalizedType) return false;
+
   const lowerName = file.name.toLowerCase();
-  return lowerName.endsWith(".wav") || lowerName.endsWith(".mp3") || lowerName.endsWith(".webm") || lowerName.endsWith(".ogg");
+  return (
+    lowerName.endsWith(".wav") ||
+    lowerName.endsWith(".mp3") ||
+    lowerName.endsWith(".webm") ||
+    lowerName.endsWith(".ogg") ||
+    lowerName.endsWith(".m4a") ||
+    lowerName.endsWith(".aac")
+  );
 }
 
 function slugify(value: string): string {
