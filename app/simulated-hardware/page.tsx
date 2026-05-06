@@ -5,6 +5,7 @@ import * as THREE from "three";
 import styles from "./simulated-hardware.module.css";
 
 type LedState = "off" | "booting" | "connecting" | "ready" | "recording" | "thinking" | "playing" | "error";
+type MicPermissionState = "unknown" | "requesting" | "ready" | "denied" | "unavailable";
 
 type AudioQueryResponse = {
   ok: boolean;
@@ -151,10 +152,13 @@ export default function SimulatedHardwarePage() {
   const requestInFlightRef = useRef(false);
   const sessionIdRef = useRef<string>("");
   const ledStateRef = useRef<LedState>("ready");
+  const micPermissionReadyRef = useRef(false);
+  const recordingStartedAtRef = useRef<number | null>(null);
   const errorResetTimeoutRef = useRef<number | null>(null);
   const [useFallback, setUseFallback] = useState(false);
   const [ledState, setLedState] = useState<LedState>("ready");
   const [statusText, setStatusText] = useState("Ready");
+  const [micPermissionState, setMicPermissionState] = useState<MicPermissionState>("unknown");
 
   const sessionId = useMemo(() => getOrCreateSessionId(), []);
 
@@ -164,7 +168,6 @@ export default function SimulatedHardwarePage() {
 
   useEffect(() => {
     ledStateRef.current = ledState;
-    setStatusText(ledLabel(ledState));
   }, [ledState]);
 
   const setErrorState = useCallback((message: string) => {
@@ -173,15 +176,53 @@ export default function SimulatedHardwarePage() {
     setLedState("error");
     errorResetTimeoutRef.current = window.setTimeout(() => {
       setLedState("ready");
-      setStatusText("Ready");
+      setStatusText(micPermissionReadyRef.current ? "Ready" : "Tap talk once to enable the microphone");
       errorResetTimeoutRef.current = null;
-    }, 1800);
+    }, 2600);
   }, []);
 
   const stopMediaTracks = useCallback(() => {
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
   }, []);
+
+  const describeMicrophoneError = useCallback((error: unknown): { state: MicPermissionState; message: string } => {
+    const errorName = error instanceof DOMException ? error.name : typeof error === "object" && error && "name" in error ? String(error.name) : "";
+
+    if (errorName === "NotAllowedError" || errorName === "SecurityError") {
+      return { state: "denied", message: "Microphone access was denied" };
+    }
+    if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+      return { state: "unavailable", message: "No microphone was found on this device" };
+    }
+    if (errorName === "NotReadableError" || errorName === "TrackStartError") {
+      return { state: "unavailable", message: "The microphone is busy or unavailable right now" };
+    }
+    return { state: "unknown", message: "Couldn’t start the microphone" };
+  }, []);
+
+  const ensureMicrophoneAccess = useCallback(async (): Promise<{ shouldStartRecordingThisPress: boolean }> => {
+    if (micPermissionReadyRef.current) return { shouldStartRecordingThisPress: true };
+
+    try {
+      setMicPermissionState("requesting");
+      setLedState("thinking");
+      setStatusText("Allow microphone access, then press and hold again to talk");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micPermissionReadyRef.current = true;
+      setMicPermissionState("ready");
+      stream.getTracks().forEach((track) => track.stop());
+      setLedState("ready");
+      setStatusText("Microphone enabled — now press and hold to record");
+      return { shouldStartRecordingThisPress: false };
+    } catch (error) {
+      micPermissionReadyRef.current = false;
+      const { state, message } = describeMicrophoneError(error);
+      setMicPermissionState(state);
+      setErrorState(message);
+      return { shouldStartRecordingThisPress: false };
+    }
+  }, [describeMicrophoneError, setErrorState]);
 
   const playResponseAudio = useCallback(
     async (audioUrl: string | undefined) => {
@@ -235,6 +276,12 @@ export default function SimulatedHardwarePage() {
       setStatusText("Uploading / thinking");
 
       try {
+        if (blob.size < 1024) {
+          setLedState("ready");
+          setStatusText("Ready");
+          return;
+        }
+
         const formData = new FormData();
         const normalizedType = (blob.type || "audio/webm").split(";")[0]?.trim().toLowerCase() || "audio/webm";
         const extensionByMime: Record<string, string> = {
@@ -271,12 +318,21 @@ export default function SimulatedHardwarePage() {
 
   const handleTalkStart = useCallback(async () => {
     if (requestInFlightRef.current || talkActiveRef.current) return;
+
+    if (!micPermissionReadyRef.current) {
+      talkActiveRef.current = true;
+      const { shouldStartRecordingThisPress } = await ensureMicrophoneAccess();
+      talkActiveRef.current = false;
+      if (!shouldStartRecordingThisPress) return;
+    }
+
     talkActiveRef.current = true;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
+      recordingStartedAtRef.current = performance.now();
 
       const preferredMimeTypes = [
         "audio/mp4",
@@ -297,11 +353,13 @@ export default function SimulatedHardwarePage() {
       });
 
       recorder.addEventListener("stop", async () => {
+        const recordingDurationMs = recordingStartedAtRef.current == null ? 0 : performance.now() - recordingStartedAtRef.current;
+        recordingStartedAtRef.current = null;
         stopMediaTracks();
         mediaRecorderRef.current = null;
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
         audioChunksRef.current = [];
-        if (blob.size > 0) {
+        if (blob.size > 0 && recordingDurationMs >= 250) {
           await uploadRecording(blob);
         } else {
           setLedState("ready");
@@ -312,12 +370,16 @@ export default function SimulatedHardwarePage() {
       recorder.start();
       setLedState("recording");
       setStatusText("Recording");
-    } catch {
+    } catch (error) {
+      recordingStartedAtRef.current = null;
       stopMediaTracks();
       talkActiveRef.current = false;
-      setErrorState("Microphone access was denied");
+      micPermissionReadyRef.current = false;
+      const { state, message } = describeMicrophoneError(error);
+      setMicPermissionState(state);
+      setErrorState(message);
     }
-  }, [setErrorState, stopMediaTracks, uploadRecording]);
+  }, [describeMicrophoneError, ensureMicrophoneAccess, setErrorState, stopMediaTracks, uploadRecording]);
 
   const handleTalkEnd = useCallback(() => {
     if (!talkActiveRef.current) return;
@@ -329,8 +391,75 @@ export default function SimulatedHardwarePage() {
       return;
     }
 
+    recordingStartedAtRef.current = null;
     stopMediaTracks();
   }, [stopMediaTracks]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setMicPermissionState("denied");
+      setStatusText("This browser doesn’t support microphone recording here");
+      setLedState("error");
+      return;
+    }
+
+    let cancelled = false;
+    let permissionStatus: PermissionStatus | null = null;
+
+    const hydratePermissionState = async () => {
+      const permissions = navigator.permissions as { query?: (descriptor: PermissionDescriptor) => Promise<PermissionStatus> } | undefined;
+      if (!permissions?.query) {
+        if (!micPermissionReadyRef.current) {
+          setStatusText("Tap talk once to enable the microphone");
+        }
+        return;
+      }
+
+      try {
+        const status = await permissions.query({ name: "microphone" as PermissionName });
+        if (cancelled) return;
+        permissionStatus = status;
+
+        const syncState = () => {
+          if (status.state === "granted") {
+            micPermissionReadyRef.current = true;
+            setMicPermissionState("ready");
+            setStatusText("Ready");
+            setLedState("ready");
+            return;
+          }
+          if (status.state === "denied") {
+            micPermissionReadyRef.current = false;
+            setMicPermissionState("denied");
+            setStatusText("Microphone access is blocked — enable it in Safari settings");
+            setLedState("error");
+            return;
+          }
+          micPermissionReadyRef.current = false;
+          setMicPermissionState("unknown");
+          setStatusText("Tap talk once to enable the microphone");
+          setLedState("ready");
+        };
+
+        syncState();
+        status.onchange = () => {
+          if (cancelled) return;
+          syncState();
+        };
+      } catch {
+        if (!micPermissionReadyRef.current) {
+          setStatusText("Tap talk once to enable the microphone");
+        }
+      }
+    };
+
+    void hydratePermissionState();
+
+    return () => {
+      cancelled = true;
+      if (permissionStatus) permissionStatus.onchange = null;
+    };
+  }, []);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -678,6 +807,17 @@ export default function SimulatedHardwarePage() {
     };
   }, [handleTalkStart, handleTalkEnd, sendNextStep, useFallback]);
 
+  const micHelpText =
+    micPermissionState === "unknown"
+      ? "First use on iPhone: tap Talk once, allow microphone access, then press and hold to record."
+      : micPermissionState === "requesting"
+        ? "Waiting for microphone permission. After you allow it, press and hold Talk again."
+        : micPermissionState === "denied"
+          ? "Microphone access is blocked. In Safari, enable the mic for this site and try again."
+          : micPermissionState === "unavailable"
+            ? "The microphone isn’t available right now. Check your device and try again."
+            : "Press and hold Talk while you speak. Release to send.";
+
   return (
     <main className={styles.page}>
       <audio ref={audioRef} preload="auto" className={styles.hiddenAudio} />
@@ -685,6 +825,7 @@ export default function SimulatedHardwarePage() {
       <div className={styles.header}>
         <h1>Voice Cooking Companion</h1>
         <p>Status: {statusText}</p>
+        <p>{micHelpText}</p>
       </div>
 
       <div className={styles.sceneWrap} onContextMenu={suppressLongPress}>
