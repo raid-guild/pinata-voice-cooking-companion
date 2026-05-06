@@ -1,0 +1,90 @@
+npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+
+added 192 packages, and audited 193 packages in 16s
+
+29 packages are looking for funding
+  run `npm fund` for details
+
+4 vulnerabilities (1 low, 3 moderate)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm notice
+npm notice New major version of npm available! 10.9.4 -> 11.13.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.13.0
+npm notice To update run: npm install -g npm@11.13.0
+npm notice
+
+> pinata-voice-cooking-companion@0.1.0 build
+> next build
+
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+   ▲ Next.js 15.5.15
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 15.0s
+   Linting and checking validity of types ...
+It looks like you're trying to use TypeScript but do not have the required package(s) installed.
+Installing dependencies
+
+If you are not trying to use TypeScript, please remove the tsconfig.json file from your package root (and any TypeScript files in your app and pages directories).
+
+
+Installing devDependencies (npm):
+- typescript
+- @types/react
+- @types/node
+
+
+added 14 packages, and audited 207 packages in 4s
+
+29 packages are looking for funding
+  run `npm fund` for details
+
+4 vulnerabilities (1 low, 3 moderate)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+   Collecting page data ...
+   Generating static pages (0/5) ...
+   Generating static pages (1/5) 
+   Generating static pages (2/5) 
+   Generating static pages (3/5) 
+ ✓ Generating static pages (5/5)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                    2.32 kB         105 kB
+├ ○ /_not-found                            991 B         103 kB
+├ ƒ /api/audio/[name]                      139 B         102 kB
+├ ƒ /api/events                            139 B         102 kB
+├ ƒ /api/recipes                           139 B         102 kB
+├ ƒ /api/recipes/[id]                      139 B         102 kB
+├ ƒ /query                                 139 B         102 kB
+├ ƒ /query-audio                           139 B         102 kB
+└ ○ /simulated-hardware                   140 kB         242 kB
++ First Load JS shared by all             102 kB
+  ├ chunks/255-c18c949c0aeabb5e.js         46 kB
+  ├ chunks/4bd1b696-c023c6e3521b1417.js  54.2 kB
+  └ other shared chunks (total)          1.94 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

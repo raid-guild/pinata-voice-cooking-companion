@@ -159,6 +159,8 @@ export default function SimulatedHardwarePage() {
   const [ledState, setLedState] = useState<LedState>("ready");
   const [statusText, setStatusText] = useState("Ready");
   const [micPermissionState, setMicPermissionState] = useState<MicPermissionState>("unknown");
+  const [lastAnswerText, setLastAnswerText] = useState("");
+  const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
 
   const sessionId = useMemo(() => getOrCreateSessionId(), []);
 
@@ -225,10 +227,12 @@ export default function SimulatedHardwarePage() {
   }, [describeMicrophoneError, setErrorState]);
 
   const playResponseAudio = useCallback(
-    async (audioUrl: string | undefined) => {
+    async (audioUrl: string | undefined, options?: { allowManualFallback?: boolean }) => {
       if (!audioUrl || !audioRef.current) {
+        setPendingAudioUrl(null);
         setLedState("ready");
-        return;
+        setStatusText("Ready");
+        return true;
       }
 
       const resolvedUrl = audioUrl.startsWith("http") ? audioUrl : new URL(audioUrl, window.location.origin).toString();
@@ -236,11 +240,21 @@ export default function SimulatedHardwarePage() {
       setLedState("playing");
       try {
         await audioRef.current.play();
+        setPendingAudioUrl(null);
+        setStatusText("Playing response");
+        return true;
       } catch {
-        setErrorState("Couldn’t play response audio");
+        setPendingAudioUrl(resolvedUrl);
+        setLedState("ready");
+        setStatusText(
+          options?.allowManualFallback === false
+            ? "Couldn’t play response audio"
+            : "Response ready — tap Play Response for audio"
+        );
+        return false;
       }
     },
-    [setErrorState]
+    []
   );
 
   const sendNextStep = useCallback(async () => {
