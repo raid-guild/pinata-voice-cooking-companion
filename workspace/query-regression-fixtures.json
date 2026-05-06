@@ -1,0 +1,167 @@
+[
+  {
+    "name": "load known recipe",
+    "sessionId": "reg-load-known",
+    "query": "load tuna noodle casserole",
+    "expect": {
+      "ok": true,
+      "intent": "load_recipe",
+      "answerIncludes": ["Step 1", "Preheat"],
+      "sessionPhase": "steps",
+      "activeRecipeIdIncludes": "tuna-noodle-casserole"
+    }
+  },
+  {
+    "name": "next advances step",
+    "sessionId": "reg-next-step",
+    "before": ["load tuna noodle casserole"],
+    "query": "next",
+    "expect": {
+      "ok": true,
+      "intent": "next_step",
+      "answerIncludes": ["Step 2"],
+      "sessionPhase": "steps"
+    }
+  },
+  {
+    "name": "temperature extraction supports fahrenheit symbol",
+    "sessionId": "reg-temp-f",
+    "before": ["load tuna noodle casserole"],
+    "query": "what temperature?",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["350", "F"]
+    }
+  },
+  {
+    "name": "unknown recipe does not silently load another one",
+    "sessionId": "reg-missing-recipe",
+    "query": "load a chicken burger recipe",
+    "expect": {
+      "ok": true,
+      "intent": "general_help",
+      "answerIncludes": ["don’t have a saved recipe for chicken burger", "similar saved recipe"],
+      "activeRecipeIdNull": true
+    }
+  },
+  {
+    "name": "missing recipe keeps current recipe explicit",
+    "sessionId": "reg-missing-keep-current",
+    "before": ["load tuna noodle casserole"],
+    "query": "load a chicken burger recipe",
+    "expect": {
+      "ok": true,
+      "intent": "general_help",
+      "answerIncludes": ["don’t have a saved recipe for chicken burger", "current recipe is still Tuna Noodle Casserole"],
+      "activeRecipeIdIncludes": "tuna-noodle-casserole"
+    }
+  },
+  {
+    "name": "ingredient request after load",
+    "sessionId": "reg-ingredients",
+    "before": ["load tuna noodle casserole"],
+    "query": "ingredients",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["Ingredients for Tuna Noodle Casserole"],
+      "sessionPhase": "ingredients"
+    }
+  },
+  {
+    "name": "previous step works",
+    "sessionId": "reg-previous-step",
+    "before": ["load tuna noodle casserole", "next"],
+    "query": "go back",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["Step 1"],
+      "sessionPhase": "steps"
+    }
+  },
+  {
+    "name": "where am i reports current step",
+    "sessionId": "reg-where-am-i-step",
+    "before": ["load tuna noodle casserole", "next"],
+    "query": "where am I",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["step 2"]
+    }
+  },
+  {
+    "name": "start over resets to first step",
+    "sessionId": "reg-start-over-step",
+    "before": ["load tuna noodle casserole", "next"],
+    "query": "start over",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["Step 1"],
+      "sessionPhase": "steps"
+    }
+  },
+  {
+    "name": "where am i reports current ingredient",
+    "sessionId": "reg-where-am-i-ingredient",
+    "before": ["load tuna noodle casserole", "ingredients"],
+    "query": "where am I",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["ingredient 1"]
+    }
+  },
+  {
+    "name": "next ingredient advances ingredient index",
+    "sessionId": "reg-next-ingredient",
+    "before": ["load tuna noodle casserole", "ingredients"],
+    "query": "next ingredient",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["Ingredient 2"],
+      "sessionPhase": "ingredients"
+    }
+  },
+  {
+    "name": "previous ingredient goes back",
+    "sessionId": "reg-previous-ingredient",
+    "before": ["load tuna noodle casserole", "ingredients", "next ingredient"],
+    "query": "previous ingredient",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["Ingredient 1"],
+      "sessionPhase": "ingredients"
+    }
+  },
+  {
+    "name": "jump to step moves to requested step",
+    "sessionId": "reg-jump-step",
+    "before": ["load tuna noodle casserole"],
+    "query": "go to step 4",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["Step 4"],
+      "sessionPhase": "steps"
+    }
+  },
+  {
+    "name": "jump to missing step reports bounds",
+    "sessionId": "reg-jump-step-missing",
+    "before": ["load tuna noodle casserole"],
+    "query": "go to step 99",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["only have", "steps saved"],
+      "sessionPhase": "steps"
+    }
+  },
+  {
+    "name": "read all ingredients reads the full list",
+    "sessionId": "reg-read-all-ingredients",
+    "before": ["load tuna noodle casserole"],
+    "query": "read all ingredients",
+    "expect": {
+      "ok": true,
+      "answerIncludes": ["All ingredients for Tuna Noodle Casserole", "Ingredient 1.", "Ingredient 2."],
+      "sessionPhase": "ingredients"
+    }
+  }
+]
