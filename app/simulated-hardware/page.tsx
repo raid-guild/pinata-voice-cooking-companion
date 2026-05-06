@@ -237,15 +237,17 @@ export default function SimulatedHardwarePage() {
       try {
         const formData = new FormData();
         const normalizedType = (blob.type || "audio/webm").split(";")[0]?.trim().toLowerCase() || "audio/webm";
-        const extension = normalizedType === "audio/mpeg"
-          ? "mp3"
-          : normalizedType === "audio/mp4" || normalizedType === "audio/x-m4a"
-            ? "m4a"
-            : normalizedType === "audio/wav"
-              ? "wav"
-              : normalizedType === "audio/ogg"
-                ? "ogg"
-                : "webm";
+        const extensionByMime: Record<string, string> = {
+          "audio/mpeg": "mp3",
+          "audio/mp4": "mp4",
+          "audio/x-m4a": "m4a",
+          "audio/aac": "aac",
+          "audio/x-aac": "aac",
+          "audio/wav": "wav",
+          "audio/ogg": "ogg",
+          "audio/webm": "webm"
+        };
+        const extension = extensionByMime[normalizedType] ?? "webm";
         formData.append("audio", new File([blob], `query-audio.${extension}`, { type: normalizedType }));
         formData.append("sessionId", sessionIdRef.current);
 
