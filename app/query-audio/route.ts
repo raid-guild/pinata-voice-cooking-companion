@@ -104,12 +104,12 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log("[query-audio] received audio upload", {
-      name: audioInput.name,
-      type: audioInput.type,
-      size: audioInput.size,
-      sessionId
-    });
+    if (process.env.DEBUG_AUDIO_QUERY === "1") {
+      console.log("[query-audio] received audio upload", {
+        type: audioInput.type,
+        size: audioInput.size
+      });
+    }
 
     const result = await handleAudioQuery({
       file: audioInput,
