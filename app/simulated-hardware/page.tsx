@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import styles from "./simulated-hardware.module.css";
 
 type LedState = "off" | "booting" | "connecting" | "ready" | "recording" | "thinking" | "playing" | "error";
@@ -95,6 +97,10 @@ function ledVisual(state: LedState, timeSeconds: number) {
   }
 }
 
+function cadToScene(x: number, y: number, z: number) {
+  return new THREE.Vector3(x, z, y);
+}
+
 type DeviceProps = {
   ledState: LedState;
   onMainPress: () => void;
@@ -161,6 +167,18 @@ export default function SimulatedHardwarePage() {
   const [micPermissionState, setMicPermissionState] = useState<MicPermissionState>("unknown");
   const [lastAnswerText, setLastAnswerText] = useState("");
   const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
+  const [cameraUnlocked, setCameraUnlocked] = useState(false);
+  const [cameraReadout, setCameraReadout] = useState({
+    position: { x: 10.96, y: 3.56, z: 9.21 },
+    target: { x: 3.2, y: 0.95, z: 2.1 }
+  });
+  const cameraPoseRef = useRef({
+    position: new THREE.Vector3(10.96, 3.56, 9.21),
+    target: new THREE.Vector3(3.2, 0.95, 2.1)
+  });
+  const cameraUnlockedRef = useRef(cameraUnlocked);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const axisOverlayRef = useRef<THREE.Group | null>(null);
 
   const sessionId = useMemo(() => getOrCreateSessionId(), []);
 
@@ -171,6 +189,12 @@ export default function SimulatedHardwarePage() {
   useEffect(() => {
     ledStateRef.current = ledState;
   }, [ledState]);
+
+  useEffect(() => {
+    cameraUnlockedRef.current = cameraUnlocked;
+    if (controlsRef.current) controlsRef.current.enabled = cameraUnlocked;
+    if (axisOverlayRef.current) axisOverlayRef.current.visible = cameraUnlocked;
+  }, [cameraUnlocked]);
 
   const setErrorState = useCallback((message: string) => {
     if (errorResetTimeoutRef.current) window.clearTimeout(errorResetTimeoutRef.current);
@@ -528,15 +552,42 @@ export default function SimulatedHardwarePage() {
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
-    camera.position.set(0.45, 2.35, 10.6);
+    if (cameraPoseRef.current.position.equals(new THREE.Vector3(10.96, 3.56, 9.21))) {
+      cameraPoseRef.current.position.set(10.96, 3.56, 9.21);
+      cameraPoseRef.current.target.set(3.2, 0.95, 2.1);
+    }
+    camera.position.copy(cameraPoseRef.current.position);
+    camera.lookAt(cameraPoseRef.current.target);
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mountEl.appendChild(renderer.domElement);
 
+    let gltfCancelled = false;
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enabled = cameraUnlockedRef.current;
+    controls.enablePan = false;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.rotateSpeed = 0.85;
+    controls.zoomSpeed = 0.9;
+    controls.minDistance = 6.5;
+    controls.maxDistance = 18;
+    controls.minPolarAngle = 0.35;
+    controls.maxPolarAngle = 1.45;
+    controls.target.copy(cameraPoseRef.current.target);
+    controls.update();
+    controlsRef.current = controls;
+
     const ambient = new THREE.HemisphereLight(0xffffff, 0x9a7b56, 1.35);
     scene.add(ambient);
+
+    const axisOverlay = buildAxisOverlay();
+    axisOverlay.visible = cameraUnlockedRef.current;
+    axisOverlayRef.current = axisOverlay;
+    scene.add(axisOverlay);
 
     const key = new THREE.DirectionalLight(0xffffff, 2.2);
     key.position.set(6, 8, 7);
@@ -555,33 +606,76 @@ export default function SimulatedHardwarePage() {
     scene.add(fill);
 
     const group = new THREE.Group();
-    group.position.y = 0.7;
-    group.rotation.x = -0.22;
-    group.rotation.y = -0.55;
-    group.rotation.z = -0.04;
+    group.position.set(0, 0, 0);
+    group.rotation.set(0, 0, 0);
     scene.add(group);
 
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(4.6, 3.2, 3.1),
-      new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.88, metalness: 0.06 })
-    );
-    body.castShadow = true;
-    body.receiveShadow = true;
-    group.add(body);
+    const caseGroup = new THREE.Group();
+    group.add(caseGroup);
 
-    const topHighlight = new THREE.Mesh(
-      new THREE.PlaneGeometry(4.2, 2.7),
-      new THREE.MeshBasicMaterial({ color: 0x2b2d31, transparent: true, opacity: 0.42 })
+    const gltfLoader = new GLTFLoader();
+    const modelUrl = new URL("/app/models/Cooking_Companion_Case.glb", window.location.origin).toString();
+    gltfLoader.load(
+      modelUrl,
+      (gltf) => {
+        if (gltfCancelled) {
+          gltf.scene.traverse((object) => {
+            if (object instanceof THREE.Mesh) {
+              object.geometry.dispose();
+            }
+          });
+          return;
+        }
+
+        const caseModel = gltf.scene;
+        const bounds = new THREE.Box3().setFromObject(caseModel);
+        const size = bounds.getSize(new THREE.Vector3());
+        const center = bounds.getCenter(new THREE.Vector3());
+        const longestSide = Math.max(size.x, size.y, size.z) || 1;
+        const scale = 4.9 / longestSide;
+
+        caseModel.position.sub(center);
+        caseModel.scale.setScalar(scale);
+        caseModel.traverse((object) => {
+          if (object instanceof THREE.Mesh) {
+            object.castShadow = true;
+            object.receiveShadow = true;
+          }
+        });
+
+        const scaledBounds = new THREE.Box3().setFromObject(caseModel);
+        caseModel.position.x -= scaledBounds.min.x;
+        caseModel.position.y -= scaledBounds.min.y;
+        caseModel.position.z -= scaledBounds.min.z;
+        caseGroup.add(caseModel);
+
+        const caseBottomY = new THREE.Box3().setFromObject(caseModel).min.y;
+        floor.position.y = caseBottomY;
+        floorShadow.position.y = caseBottomY - 0.002;
+      },
+      undefined,
+      () => {
+        if (gltfCancelled) return;
+
+        const fallbackBody = new THREE.Mesh(
+          new THREE.BoxGeometry(4.6, 3.2, 3.1),
+          new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.88, metalness: 0.06 })
+        );
+        fallbackBody.castShadow = true;
+        fallbackBody.receiveShadow = true;
+        caseGroup.add(fallbackBody);
+
+        const caseBottomY = new THREE.Box3().setFromObject(fallbackBody).min.y;
+        floor.position.y = caseBottomY;
+        floorShadow.position.y = caseBottomY - 0.002;
+      }
     );
-    topHighlight.position.set(0, 1.61, 0);
-    topHighlight.rotation.x = -Math.PI / 2;
-    group.add(topHighlight);
 
     const ledMesh = new THREE.Mesh(
       new THREE.SphereGeometry(0.11, 24, 24),
       new THREE.MeshStandardMaterial({ color: 0x1a1a1a, emissive: 0x000000, emissiveIntensity: 0 })
     );
-    ledMesh.position.set(1.45, 1.02, 1.58);
+    ledMesh.position.copy(cadToScene(3.2, 2.4, 1.3));
     group.add(ledMesh);
 
     const ledGlowTexture = createLedGlowTexture();
@@ -593,13 +687,22 @@ export default function SimulatedHardwarePage() {
     group.add(ledGlow);
 
     const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(6.5, 48),
-      new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.22 })
+      new THREE.CircleGeometry(6.5, 64),
+      new THREE.MeshStandardMaterial({ color: 0xd7c0a2, roughness: 0.96, metalness: 0.02 })
     );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -1.85;
+    floor.position.y = 0;
     floor.receiveShadow = true;
     scene.add(floor);
+
+    const floorShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(6.5, 64),
+      new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.16 })
+    );
+    floorShadow.rotation.x = -Math.PI / 2;
+    floorShadow.position.y = -0.002;
+    floorShadow.receiveShadow = true;
+    scene.add(floorShadow);
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -616,15 +719,15 @@ export default function SimulatedHardwarePage() {
       coreBaseZ: number;
     }> = [];
 
-    const mainButton = buildButton("Next Step", 0.7, 0.92, 0.36);
-    mainButton.group.position.set(-0.92, 0.02, 1.6);
+    const mainButton = buildButton("Next Step", 0.367708572, 0.4832741232, 0.22);
+    mainButton.group.position.copy(cadToScene(2.35, 2.4, 0.82));
     group.add(mainButton.group);
     clickable.push(mainButton.hitArea);
     buttons.push(mainButton);
 
-    const talkButton = buildButton("Talk Button", 0.28, 0.4, 0.16);
-    talkButton.group.position.set(2.34, -0.18, 0.66);
-    talkButton.group.rotation.y = -Math.PI / 2;
+    const talkButton = buildButton("Talk Button", 0.22896, 0.331992, 0.14);
+    talkButton.group.position.copy(cadToScene(4.8, 1.2, 1.05));
+    talkButton.group.rotation.set(0, Math.PI / 2, 0);
     group.add(talkButton.group);
     clickable.push(talkButton.hitArea);
     buttons.push(talkButton);
@@ -649,6 +752,95 @@ export default function SimulatedHardwarePage() {
       const texture = new THREE.CanvasTexture(canvas);
       texture.needsUpdate = true;
       return texture;
+    }
+
+    function buildAxisOverlay() {
+      const overlay = new THREE.Group();
+      overlay.position.set(0, 0, 0);
+      overlay.renderOrder = 1000;
+
+      const makeAxis = (start: THREE.Vector3, end: THREE.Vector3, color: number, emphasis = 1) => {
+        const direction = new THREE.Vector3().subVectors(end, start);
+        const length = direction.length();
+        const shaftMaterial = new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: Math.min(0.98, 0.65 + emphasis * 0.15),
+          depthTest: false,
+          depthWrite: false
+        });
+        const shaft = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.015 * emphasis, 0.015 * emphasis, length, 12),
+          shaftMaterial
+        );
+        shaft.position.copy(start).add(end).multiplyScalar(0.5);
+        shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+        shaft.renderOrder = 1000;
+        overlay.add(shaft);
+
+        const head = new THREE.Mesh(
+          new THREE.ConeGeometry(0.045 * emphasis, 0.14 * emphasis, 12),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: Math.min(1, 0.85 + emphasis * 0.05),
+            depthTest: false,
+            depthWrite: false
+          })
+        );
+        head.position.copy(end);
+        head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+        head.renderOrder = 1000;
+        overlay.add(head);
+      };
+
+      const makeTick = (
+        position: THREE.Vector3,
+        rotation: THREE.Euler,
+        long = false,
+        color = 0x4b5563,
+        opacity = long ? 0.85 : 0.55,
+        vertical = false
+      ) => {
+        const tick = new THREE.Mesh(
+          new THREE.BoxGeometry(long ? 0.14 : 0.08, 0.01, 0.01),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false })
+        );
+        tick.position.copy(position);
+        tick.rotation.copy(rotation);
+        if (vertical) {
+          tick.rotation.z += Math.PI / 2;
+        }
+        tick.renderOrder = 1000;
+        overlay.add(tick);
+      };
+
+      // CAD-style convention shown in overlay:
+      // X = left/right (red), Y = depth (green, mapped to Three Z), Z = up (blue, mapped to Three Y)
+      makeAxis(new THREE.Vector3(0, 0, 0), new THREE.Vector3(6.2, 0, 0), 0xef4444, 1.6);
+      makeAxis(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 6.2), 0x22c55e, 1.6);
+      makeAxis(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 3.8, 0), 0x3b82f6, 1.1);
+
+      for (let i = 0; i <= 62; i += 1) {
+        const x = i * 0.1;
+        makeTick(new THREE.Vector3(x, 0, 0), new THREE.Euler(0, 0, 0), i % 10 === 0, 0xef4444, i % 10 === 0 ? 0.95 : 0.75, true);
+      }
+      for (let i = 0; i <= 62; i += 1) {
+        const depth = i * 0.1;
+        makeTick(new THREE.Vector3(0, 0, depth), new THREE.Euler(0, Math.PI / 2, 0), i % 10 === 0, 0x22c55e, i % 10 === 0 ? 0.95 : 0.75, true);
+      }
+      for (let i = 0; i <= 38; i += 1) {
+        const height = i * 0.1;
+        const tick = new THREE.Mesh(
+          new THREE.BoxGeometry(0.01, 0.01, i % 10 === 0 ? 0.14 : 0.08),
+          new THREE.MeshBasicMaterial({ color: 0x4b5563, transparent: true, opacity: i % 10 === 0 ? 0.85 : 0.55, depthTest: false, depthWrite: false })
+        );
+        tick.position.set(0, height, 0);
+        tick.renderOrder = 1000;
+        overlay.add(tick);
+      }
+
+      return overlay;
     }
 
     function buildButton(name: string, coreRadius: number, ringRadius: number, depth: number) {
@@ -716,12 +908,20 @@ export default function SimulatedHardwarePage() {
     }
 
     function onPointerMove(event: PointerEvent) {
+      if (cameraUnlockedRef.current) {
+        renderer.domElement.style.cursor = "grab";
+        return;
+      }
       setPointer(event);
       const hit = raycaster.intersectObjects(clickable, false);
       renderer.domElement.style.cursor = hit.length ? "pointer" : "default";
     }
 
     function onPointerDown(event: PointerEvent) {
+      if (cameraUnlockedRef.current) {
+        renderer.domElement.style.cursor = "grabbing";
+        return;
+      }
       event.preventDefault();
       setPointer(event);
       const hit = raycaster.intersectObjects(clickable, false)[0];
@@ -753,10 +953,18 @@ export default function SimulatedHardwarePage() {
     }
 
     function onPointerUp() {
+      if (cameraUnlockedRef.current) {
+        renderer.domElement.style.cursor = "grab";
+        return;
+      }
       releaseButtons(true);
     }
 
     function onPointerLeave() {
+      if (cameraUnlockedRef.current) {
+        renderer.domElement.style.cursor = "default";
+        return;
+      }
       if (activeButtonName === "Talk Button") {
         handleTalkEnd();
       }
@@ -764,6 +972,10 @@ export default function SimulatedHardwarePage() {
     }
 
     function onPointerCancel() {
+      if (cameraUnlockedRef.current) {
+        renderer.domElement.style.cursor = "default";
+        return;
+      }
       if (activeButtonName === "Talk Button") {
         handleTalkEnd();
       }
@@ -801,11 +1013,32 @@ export default function SimulatedHardwarePage() {
         button.core.position.z = button.coreBaseZ - button.currentPress * (pressDepth + 0.02);
       });
 
+      controls.update();
+      cameraPoseRef.current.position.copy(camera.position);
+      cameraPoseRef.current.target.copy(controls.target);
+      if (cameraUnlockedRef.current) {
+        const px = Number(camera.position.x.toFixed(3));
+        const py = Number(camera.position.y.toFixed(3));
+        const pz = Number(camera.position.z.toFixed(3));
+        const tx = Number(controls.target.x.toFixed(3));
+        const ty = Number(controls.target.y.toFixed(3));
+        const tz = Number(controls.target.z.toFixed(3));
+        setCameraReadout((current) => {
+          if (
+            current.position.x === px && current.position.y === py && current.position.z === pz &&
+            current.target.x === tx && current.target.y === ty && current.target.z === tz
+          ) {
+            return current;
+          }
+          return { position: { x: px, y: py, z: pz }, target: { x: tx, y: ty, z: tz } };
+        });
+      }
       renderer.render(scene, camera);
     };
     animate();
 
     return () => {
+      gltfCancelled = true;
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", resize);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
@@ -814,6 +1047,9 @@ export default function SimulatedHardwarePage() {
       renderer.domElement.removeEventListener("pointerleave", onPointerLeave);
       renderer.domElement.removeEventListener("pointercancel", onPointerCancel);
       renderer.domElement.removeEventListener("contextmenu", suppressNativeContextMenu);
+      controls.dispose();
+      controlsRef.current = null;
+      axisOverlayRef.current = null;
       if (mountEl.contains(renderer.domElement)) mountEl.removeChild(renderer.domElement);
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh) {
@@ -845,34 +1081,68 @@ export default function SimulatedHardwarePage() {
     <main className={styles.page}>
       <audio ref={audioRef} preload="auto" playsInline className={styles.hiddenAudio} />
 
-      <div className={styles.header}>
-        <h1>Voice Cooking Companion</h1>
-        <p>Status: {statusText}</p>
-        <p>{micHelpText}</p>
-        {lastAnswerText ? <p className={styles.answerText}>Last response: {lastAnswerText}</p> : null}
-        {pendingAudioUrl ? (
-          <button type="button" className={styles.playResponseButton} onClick={() => void handleManualPlay()}>
-            Play Response
-          </button>
-        ) : null}
+      <div className={styles.headerWrap}>
+        <button
+          type="button"
+          className={styles.cameraToggleButton}
+          onClick={() => setCameraUnlocked((value) => !value)}
+          aria-pressed={cameraUnlocked}
+        >
+          {cameraUnlocked ? "Lock Camera" : "Unlock Camera"}
+        </button>
+        <div className={styles.header}>
+          <h1>Voice Cooking Companion</h1>
+          <p>Status: {cameraUnlocked ? "Camera unlocked — drag to orbit" : statusText}</p>
+          <p>{cameraUnlocked ? "Camera mode is on. Hardware buttons are temporarily disabled." : micHelpText}</p>
+          {cameraUnlocked ? (
+            <>
+              <p className={styles.axisHint}>CAD axes overlay: X red = left/right, Y green = depth, Z blue = up. Short ticks mark 1 mm-style steps; longer ticks mark 1 cm-style steps.</p>
+              <div className={styles.cameraReadout}>
+                <div><strong>Camera pos</strong>: ({cameraReadout.position.x}, {cameraReadout.position.y}, {cameraReadout.position.z})</div>
+                <div><strong>Target</strong>: ({cameraReadout.target.x}, {cameraReadout.target.y}, {cameraReadout.target.z})</div>
+              </div>
+            </>
+          ) : null}
+          {lastAnswerText ? <p className={styles.answerText}>Last response: {lastAnswerText}</p> : null}
+          {pendingAudioUrl ? (
+            <button type="button" className={styles.playResponseButton} onClick={() => void handleManualPlay()}>
+              Play Response
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className={styles.sceneWrap} onContextMenu={suppressLongPress}>
         {useFallback ? (
-          <FallbackDevice ledState={ledState} onMainPress={() => void sendNextStep()} onTalkStart={() => void handleTalkStart()} onTalkEnd={handleTalkEnd} />
+          <>
+            <FallbackDevice
+              ledState={ledState}
+              onMainPress={() => {
+                if (!cameraUnlocked) void sendNextStep();
+              }}
+              onTalkStart={() => {
+                if (!cameraUnlocked) void handleTalkStart();
+              }}
+              onTalkEnd={() => {
+                if (!cameraUnlocked) handleTalkEnd();
+              }}
+            />
+            <div className={`${styles.label} ${styles.mainLabel}`}>Next Step</div>
+            <div className={`${styles.label} ${styles.talkLabel}`}>Talk Button</div>
+          </>
         ) : (
           <>
             <div ref={mountRef} className={styles.scene} aria-label="3D simulated hardware device" />
             <div style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0 }}>
-              <button type="button" onClick={() => void sendNextStep()} aria-label="Next Step">
+              <button type="button" onClick={() => { if (!cameraUnlocked) void sendNextStep(); }} aria-label="Next Step">
                 Next Step
               </button>
               <button
                 type="button"
-                onPointerDown={() => void handleTalkStart()}
-                onPointerUp={handleTalkEnd}
-                onPointerCancel={handleTalkEnd}
-                onPointerLeave={handleTalkEnd}
+                onPointerDown={() => { if (!cameraUnlocked) void handleTalkStart(); }}
+                onPointerUp={() => { if (!cameraUnlocked) handleTalkEnd(); }}
+                onPointerCancel={() => { if (!cameraUnlocked) handleTalkEnd(); }}
+                onPointerLeave={() => { if (!cameraUnlocked) handleTalkEnd(); }}
                 aria-label="Talk Button"
               >
                 Talk Button
@@ -880,8 +1150,6 @@ export default function SimulatedHardwarePage() {
             </div>
           </>
         )}
-        <div className={`${styles.label} ${styles.mainLabel}`}>Next Step</div>
-        <div className={`${styles.label} ${styles.talkLabel}`}>Talk Button</div>
       </div>
     </main>
   );

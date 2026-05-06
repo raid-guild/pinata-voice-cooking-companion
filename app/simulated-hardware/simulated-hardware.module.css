@@ -2,9 +2,9 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-start;
-  padding: 32px 24px 24px;
+  padding: 20px 0 0;
   overflow: hidden;
   background:
     radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.2) 36%, transparent 58%),
@@ -15,9 +15,16 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+.headerWrap {
+  width: 100%;
+  position: relative;
+  padding: 0 24px;
+  box-sizing: border-box;
+}
+
 .header {
   text-align: center;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .header h1 {
@@ -32,9 +39,43 @@
   font-size: 0.98rem;
 }
 
-.header .answerText {
-  margin-top: 8px;
+.header .answerText,
+.header .axisHint,
+.header .cameraReadout {
+  margin: 8px auto 0;
   max-width: 42rem;
+}
+
+.cameraReadout {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #2f3340;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9rem;
+}
+
+.cameraToggleButton {
+  position: absolute;
+  top: 0;
+  right: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(24, 28, 36, 0.86);
+  color: white;
+  font-weight: 600;
+  font-size: 0.92rem;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.cameraToggleButton:focus-visible,
+.playResponseButton:focus-visible {
+  outline: 3px solid rgba(74, 163, 255, 0.95);
+  outline-offset: 3px;
 }
 
 .playResponseButton {
@@ -53,21 +94,21 @@
   transform: translateY(1px);
 }
 
-.playResponseButton:focus-visible {
-  outline: 3px solid rgba(74, 163, 255, 0.95);
-  outline-offset: 3px;
-}
 
 .sceneWrap {
   position: relative;
-  width: min(100%, 800px);
-  aspect-ratio: 1.14 / 0.92;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  aspect-ratio: auto;
+  margin-top: 24px;
   touch-action: manipulation;
 }
 
 .scene {
   width: 100%;
   height: 100%;
+  min-height: calc(100vh - 190px);
 }
 
 .hiddenAudio {
@@ -371,6 +412,7 @@
   .sceneWrap,
   .device {
     width: min(100%, 440px);
+    margin-inline: auto;
   }
 
   .mainLabel {
