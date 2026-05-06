@@ -455,7 +455,7 @@ export default function SimulatedHardwarePage() {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  }, [setErrorState]);
+  }, [pendingAudioUrl]);
 
   useEffect(() => {
     return () => {
@@ -793,12 +793,18 @@ export default function SimulatedHardwarePage() {
 
   return (
     <main className={styles.page}>
-      <audio ref={audioRef} preload="auto" className={styles.hiddenAudio} />
+      <audio ref={audioRef} preload="auto" playsInline className={styles.hiddenAudio} />
 
       <div className={styles.header}>
         <h1>Voice Cooking Companion</h1>
         <p>Status: {statusText}</p>
         <p>{micHelpText}</p>
+        {lastAnswerText ? <p className={styles.answerText}>Last response: {lastAnswerText}</p> : null}
+        {pendingAudioUrl ? (
+          <button type="button" className={styles.playResponseButton} onClick={() => void handleManualPlay()}>
+            Play Response
+          </button>
+        ) : null}
       </div>
 
       <div className={styles.sceneWrap} onContextMenu={suppressLongPress}>
