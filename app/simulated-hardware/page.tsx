@@ -159,6 +159,8 @@ export default function SimulatedHardwarePage() {
   const [ledState, setLedState] = useState<LedState>("ready");
   const [statusText, setStatusText] = useState("Ready");
   const [micPermissionState, setMicPermissionState] = useState<MicPermissionState>("unknown");
+  const [lastAnswerText, setLastAnswerText] = useState("");
+  const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
 
   const sessionId = useMemo(() => getOrCreateSessionId(), []);
 
@@ -225,10 +227,12 @@ export default function SimulatedHardwarePage() {
   }, [describeMicrophoneError, setErrorState]);
 
   const playResponseAudio = useCallback(
-    async (audioUrl: string | undefined) => {
+    async (audioUrl: string | undefined, options?: { allowManualFallback?: boolean }) => {
       if (!audioUrl || !audioRef.current) {
+        setPendingAudioUrl(null);
         setLedState("ready");
-        return;
+        setStatusText("Ready");
+        return true;
       }
 
       const resolvedUrl = audioUrl.startsWith("http") ? audioUrl : new URL(audioUrl, window.location.origin).toString();
@@ -236,11 +240,21 @@ export default function SimulatedHardwarePage() {
       setLedState("playing");
       try {
         await audioRef.current.play();
+        setPendingAudioUrl(null);
+        setStatusText("Playing response");
+        return true;
       } catch {
-        setErrorState("Couldn’t play response audio");
+        setPendingAudioUrl(resolvedUrl);
+        setLedState("ready");
+        setStatusText(
+          options?.allowManualFallback === false
+            ? "Couldn’t play response audio"
+            : "Response ready — tap Play Response for audio"
+        );
+        return false;
       }
     },
-    [setErrorState]
+    []
   );
 
   const sendNextStep = useCallback(async () => {
@@ -259,8 +273,9 @@ export default function SimulatedHardwarePage() {
       });
       const result = (await response.json()) as AudioQueryResponse;
       if (result.session?.id) sessionIdRef.current = result.session.id;
+      setLastAnswerText(result.answerText || "");
       if (!response.ok || !result.ok) throw new Error(result.answerText || "Next step failed.");
-      await playResponseAudio(result.audio?.url);
+      await playResponseAudio(result.audio?.url, { allowManualFallback: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Next step failed.";
       setErrorState(message);
@@ -304,8 +319,9 @@ export default function SimulatedHardwarePage() {
         });
         const result = (await response.json()) as AudioQueryResponse;
         if (result.session?.id) sessionIdRef.current = result.session.id;
+        setLastAnswerText(result.answerText || "");
         if (!response.ok || !result.ok) throw new Error(result.answerText || "Audio query failed.");
-        await playResponseAudio(result.audio?.url);
+        await playResponseAudio(result.audio?.url, { allowManualFallback: true });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Audio query failed.";
         setErrorState(message);
@@ -461,6 +477,11 @@ export default function SimulatedHardwarePage() {
     };
   }, []);
 
+  const handleManualPlay = useCallback(async () => {
+    if (!pendingAudioUrl || !audioRef.current) return;
+    await playResponseAudio(pendingAudioUrl, { allowManualFallback: false });
+  }, [pendingAudioUrl, playResponseAudio]);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -471,7 +492,9 @@ export default function SimulatedHardwarePage() {
     };
 
     const handleError = () => {
-      setErrorState("Response audio failed to play");
+      setPendingAudioUrl(audio.currentSrc || pendingAudioUrl);
+      setLedState("ready");
+      setStatusText("Response ready — tap Play Response for audio");
     };
 
     audio.addEventListener("ended", handleEnded);
@@ -480,7 +503,7 @@ export default function SimulatedHardwarePage() {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  }, [setErrorState]);
+  }, [pendingAudioUrl]);
 
   useEffect(() => {
     return () => {
@@ -820,12 +843,18 @@ export default function SimulatedHardwarePage() {
 
   return (
     <main className={styles.page}>
-      <audio ref={audioRef} preload="auto" className={styles.hiddenAudio} />
+      <audio ref={audioRef} preload="auto" playsInline className={styles.hiddenAudio} />
 
       <div className={styles.header}>
         <h1>Voice Cooking Companion</h1>
         <p>Status: {statusText}</p>
         <p>{micHelpText}</p>
+        {lastAnswerText ? <p className={styles.answerText}>Last response: {lastAnswerText}</p> : null}
+        {pendingAudioUrl ? (
+          <button type="button" className={styles.playResponseButton} onClick={() => void handleManualPlay()}>
+            Play Response
+          </button>
+        ) : null}
       </div>
 
       <div className={styles.sceneWrap} onContextMenu={suppressLongPress}>

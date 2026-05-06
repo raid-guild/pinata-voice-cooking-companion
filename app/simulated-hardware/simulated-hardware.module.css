@@ -32,6 +32,32 @@
   font-size: 0.98rem;
 }
 
+.header .answerText {
+  margin-top: 8px;
+  max-width: 42rem;
+}
+
+.playResponseButton {
+  margin-top: 10px;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: #2f6fed;
+  color: white;
+  font-weight: 600;
+  font-size: 0.98rem;
+  box-shadow: 0 8px 20px rgba(47, 111, 237, 0.22);
+}
+
+.playResponseButton:active {
+  transform: translateY(1px);
+}
+
+.playResponseButton:focus-visible {
+  outline: 3px solid rgba(74, 163, 255, 0.95);
+  outline-offset: 3px;
+}
+
 .sceneWrap {
   position: relative;
   width: min(100%, 800px);
