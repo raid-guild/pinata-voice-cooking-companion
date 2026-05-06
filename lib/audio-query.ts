@@ -286,7 +286,7 @@ function isRepeatRequest(text: string): boolean {
 }
 
 function isWhereAmIRequest(text: string): boolean {
-  return /\b(where am i|where are we|what step am i on|what ingredient am i on|which ingredient am i on)\b/.test(normalize(text));
+  return /\b(where am i|where are we|what step am i on|what step i m on|what ingredient am i on|what ingredient i m on|which ingredient am i on|which ingredient i m on)\b/.test(normalize(text));
 }
 
 function isStartOverRequest(text: string): boolean {
@@ -294,7 +294,7 @@ function isStartOverRequest(text: string): boolean {
 }
 
 function isNextIngredientRequest(text: string): boolean {
-  return /\b(next ingredient|what s the next ingredient|what is the next ingredient)\b/.test(normalize(text));
+  return /\b(next ingredient|what s the next ingredient|what is the next ingredient|whats the next ingredient)\b/.test(normalize(text));
 }
 
 function isPreviousIngredientRequest(text: string): boolean {
@@ -371,7 +371,7 @@ function buildContextualAnswer(
 ): { answerText: string; nextState: VoiceSessionState } | null {
   const text = normalize(transcript);
   const currentText = state.phase === "ingredients" ? recipe.ingredients[state.stepIndex]?.trim() || "" : recipe.instructions[state.stepIndex]?.trim() || "";
-  if (/\b(where am i|where are we|what step am i on|what ingredient am i on|which ingredient am i on)\b/.test(text)) {
+  if (isWhereAmIRequest(text)) {
     return {
       answerText:
         state.phase === "ingredients"
@@ -381,14 +381,14 @@ function buildContextualAnswer(
     };
   }
 
-  if (/\b(start over|from the top|begin again|restart)\b/.test(text)) {
+  if (isStartOverRequest(text)) {
     return {
       answerText: state.phase === "ingredients" ? (ingredientLine(recipe, 0) ?? `I have ${recipe.title}, but there are no saved ingredients yet.`) : answerForStep(recipe, 0),
       nextState: { ...state, stepIndex: 0, pendingPrompt: null }
     };
   }
 
-  if (state.phase === "ingredients" && /\b(next ingredient|what s the next ingredient|what is the next ingredient)\b/.test(text)) {
+  if (state.phase === "ingredients" && isNextIngredientRequest(text)) {
     const nextIndex = state.stepIndex + 1;
     const nextIngredient = ingredientLine(recipe, nextIndex);
     return nextIngredient
@@ -396,7 +396,7 @@ function buildContextualAnswer(
       : { answerText: `You’re at the end of the ingredient list for ${recipe.title}.`, nextState: state };
   }
 
-  if (state.phase === "ingredients" && /\b(previous ingredient|last ingredient|ingredient before|go back an ingredient)\b/.test(text)) {
+  if (state.phase === "ingredients" && isPreviousIngredientRequest(text)) {
     if (state.stepIndex <= 0) return { answerText: "You’re on the first ingredient already.", nextState: state };
     const previousIndex = state.stepIndex - 1;
     return {
@@ -1190,7 +1190,7 @@ export async function handleTextQuery(options: {
   const currentSession = getVoiceSession(sessionId);
   const currentRecipe = findRecipeBySessionId(currentSession.activeRecipeId);
 
-  if (currentRecipe && currentSession.phase === "ingredients") {
+  if (currentRecipe) {
     const requestedIngredientIndex = extractRequestedIngredientIndex(cleanedTranscript);
     if (requestedIngredientIndex != null) {
       const requestedIngredient = ingredientLine(currentRecipe, requestedIngredientIndex);
@@ -1199,7 +1199,9 @@ export async function handleTextQuery(options: {
         intent: "general_help",
         answerText: requestedIngredient ?? `I only have ${currentRecipe.ingredients.length} ingredients saved for ${currentRecipe.title}.`,
         sessionId,
-        nextState: requestedIngredient ? { ...currentSession, stepIndex: requestedIngredientIndex, pendingPrompt: null } : currentSession,
+        nextState: requestedIngredient
+          ? { ...currentSession, phase: "ingredients", stepIndex: requestedIngredientIndex, pendingPrompt: null }
+          : currentSession,
         includeAudio,
         publicBaseUrl
       });
@@ -1300,6 +1302,22 @@ export async function handleTextQuery(options: {
     });
   }
 
+  if (currentRecipe && currentSession.phase === "steps") {
+    const requestedStepIndex = extractRequestedStepIndex(cleanedTranscript);
+    if (requestedStepIndex != null) {
+      const requestedStep = spokenStep(currentRecipe, requestedStepIndex);
+      return finalizeResponse({
+        transcript: cleanedTranscript,
+        intent: "general_help",
+        answerText: requestedStep ?? `I only have ${currentRecipe.instructions.length} steps saved for ${currentRecipe.title}.`,
+        sessionId,
+        nextState: requestedStep ? { ...currentSession, stepIndex: requestedStepIndex, pendingPrompt: null } : currentSession,
+        includeAudio,
+        publicBaseUrl
+      });
+    }
+  }
+
   if (currentRecipe && isStartOverRequest(cleanedTranscript)) {
     const nextState: VoiceSessionState = { ...currentSession, stepIndex: 0, pendingPrompt: null };
     return finalizeResponse({
@@ -1308,44 +1326,6 @@ export async function handleTextQuery(options: {
       answerText: nextState.phase === "ingredients" ? (ingredientLine(currentRecipe, 0) ?? `I have ${currentRecipe.title}, but there are no saved ingredients yet.`) : answerForStep(currentRecipe, 0),
       sessionId,
       nextState,
-      includeAudio,
-      publicBaseUrl
-    });
-  }
-
-  if (currentRecipe && currentSession.phase === "ingredients" && isNextIngredientRequest(cleanedTranscript)) {
-    const nextIndex = currentSession.stepIndex + 1;
-    const nextIngredient = ingredientLine(currentRecipe, nextIndex);
-    return finalizeResponse({
-      transcript: cleanedTranscript,
-      intent: "general_help",
-      answerText: nextIngredient ?? `You’re at the end of the ingredient list for ${currentRecipe.title}.`,
-      sessionId,
-      nextState: nextIngredient ? { ...currentSession, stepIndex: nextIndex, pendingPrompt: null } : currentSession,
-      includeAudio,
-      publicBaseUrl
-    });
-  }
-
-  if (currentRecipe && currentSession.phase === "ingredients" && isPreviousIngredientRequest(cleanedTranscript)) {
-    if (currentSession.stepIndex <= 0) {
-      return finalizeResponse({
-        transcript: cleanedTranscript,
-        intent: "general_help",
-        answerText: "You’re on the first ingredient already.",
-        sessionId,
-        nextState: currentSession,
-        includeAudio,
-        publicBaseUrl
-      });
-    }
-    const previousIndex = currentSession.stepIndex - 1;
-    return finalizeResponse({
-      transcript: cleanedTranscript,
-      intent: "general_help",
-      answerText: ingredientLine(currentRecipe, previousIndex) ?? "I don’t have the previous ingredient saved.",
-      sessionId,
-      nextState: { ...currentSession, stepIndex: previousIndex, pendingPrompt: null },
       includeAudio,
       publicBaseUrl
     });
