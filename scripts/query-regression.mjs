@@ -6,15 +6,42 @@ const fixturePath = process.env.QUERY_FIXTURES || path.join(process.cwd(), "work
 
 const fixtures = JSON.parse(await fs.readFile(fixturePath, "utf8"));
 
-async function sendQuery(sessionId, query) {
-  const response = await fetch(baseUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionId, inputMode: "query", query })
-  });
+async function parseJsonResponse(response) {
+  const rawText = await response.text();
+  try {
+    return { status: response.status, json: JSON.parse(rawText), rawText };
+  } catch {
+    return {
+      status: response.status,
+      json: {
+        ok: false,
+        answerText: `Non-JSON response (status ${response.status})`,
+        rawText
+      },
+      rawText
+    };
+  }
+}
 
-  const json = await response.json();
-  return { status: response.status, json };
+async function sendQuery(sessionId, query) {
+  try {
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId, inputMode: "query", query })
+    });
+
+    return await parseJsonResponse(response);
+  } catch (error) {
+    return {
+      status: 0,
+      json: {
+        ok: false,
+        answerText: error instanceof Error ? error.message : "Request failed"
+      },
+      rawText: String(error)
+    };
+  }
 }
 
 function assertCondition(condition, message, failures) {

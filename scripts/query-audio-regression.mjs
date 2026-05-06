@@ -7,22 +7,61 @@ const fixturePath = process.env.QUERY_AUDIO_FIXTURES || path.join(process.cwd(),
 
 const fixtures = JSON.parse(await fs.readFile(fixturePath, "utf8"));
 
+async function parseJsonResponse(response) {
+  const rawText = await response.text();
+  try {
+    return { status: response.status, json: JSON.parse(rawText), rawText };
+  } catch {
+    return {
+      status: response.status,
+      json: {
+        ok: false,
+        answerText: `Non-JSON response (status ${response.status})`,
+        rawText
+      },
+      rawText
+    };
+  }
+}
+
 async function sendQuery(sessionId, query) {
-  const response = await fetch(queryBaseUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionId, inputMode: "query", query })
-  });
-  return { status: response.status, json: await response.json() };
+  try {
+    const response = await fetch(queryBaseUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId, inputMode: "query", query })
+    });
+    return await parseJsonResponse(response);
+  } catch (error) {
+    return {
+      status: 0,
+      json: {
+        ok: false,
+        answerText: error instanceof Error ? error.message : "Request failed"
+      },
+      rawText: String(error)
+    };
+  }
 }
 
 async function sendAudioJson(body) {
-  const response = await fetch(audioBaseUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  return { status: response.status, json: await response.json() };
+  try {
+    const response = await fetch(audioBaseUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return await parseJsonResponse(response);
+  } catch (error) {
+    return {
+      status: 0,
+      json: {
+        ok: false,
+        answerText: error instanceof Error ? error.message : "Request failed"
+      },
+      rawText: String(error)
+    };
+  }
 }
 
 function assertCondition(condition, message, failures) {
