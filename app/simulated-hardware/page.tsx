@@ -273,8 +273,9 @@ export default function SimulatedHardwarePage() {
       });
       const result = (await response.json()) as AudioQueryResponse;
       if (result.session?.id) sessionIdRef.current = result.session.id;
+      setLastAnswerText(result.answerText || "");
       if (!response.ok || !result.ok) throw new Error(result.answerText || "Next step failed.");
-      await playResponseAudio(result.audio?.url);
+      await playResponseAudio(result.audio?.url, { allowManualFallback: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Next step failed.";
       setErrorState(message);
@@ -318,8 +319,9 @@ export default function SimulatedHardwarePage() {
         });
         const result = (await response.json()) as AudioQueryResponse;
         if (result.session?.id) sessionIdRef.current = result.session.id;
+        setLastAnswerText(result.answerText || "");
         if (!response.ok || !result.ok) throw new Error(result.answerText || "Audio query failed.");
-        await playResponseAudio(result.audio?.url);
+        await playResponseAudio(result.audio?.url, { allowManualFallback: true });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Audio query failed.";
         setErrorState(message);
@@ -475,6 +477,11 @@ export default function SimulatedHardwarePage() {
     };
   }, []);
 
+  const handleManualPlay = useCallback(async () => {
+    if (!pendingAudioUrl || !audioRef.current) return;
+    await playResponseAudio(pendingAudioUrl, { allowManualFallback: false });
+  }, [pendingAudioUrl, playResponseAudio]);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -485,7 +492,9 @@ export default function SimulatedHardwarePage() {
     };
 
     const handleError = () => {
-      setErrorState("Response audio failed to play");
+      setPendingAudioUrl(audio.currentSrc || pendingAudioUrl);
+      setLedState("ready");
+      setStatusText("Response ready — tap Play Response for audio");
     };
 
     audio.addEventListener("ended", handleEnded);

@@ -32,8 +32,8 @@
   font-size: 0.98rem;
 }
 
-.answerText {
-  margin-top: 8px !important;
+.header .answerText {
+  margin-top: 8px;
   max-width: 42rem;
 }
 
