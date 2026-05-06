@@ -12,7 +12,9 @@
     "pm2:reload": "pm2 reload ecosystem.config.cjs --update-env",
     "pm2:stop": "pm2 delete pinata-voice-cooking-companion",
     "pm2:logs": "pm2 logs pinata-voice-cooking-companion --lines 100",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:query": "node scripts/query-regression.mjs",
+    "test:query-audio": "node scripts/query-audio-regression.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",
