@@ -151,6 +151,8 @@ export default function SimulatedHardwarePage() {
   const requestInFlightRef = useRef(false);
   const sessionIdRef = useRef<string>("");
   const ledStateRef = useRef<LedState>("ready");
+  const micPermissionReadyRef = useRef(false);
+  const recordingStartedAtRef = useRef<number | null>(null);
   const errorResetTimeoutRef = useRef<number | null>(null);
   const [useFallback, setUseFallback] = useState(false);
   const [ledState, setLedState] = useState<LedState>("ready");
@@ -182,6 +184,24 @@ export default function SimulatedHardwarePage() {
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
   }, []);
+
+  const ensureMicrophoneAccess = useCallback(async () => {
+    if (micPermissionReadyRef.current) return true;
+
+    try {
+      setLedState("thinking");
+      setStatusText("Waiting for microphone permission");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micPermissionReadyRef.current = true;
+      stream.getTracks().forEach((track) => track.stop());
+      setLedState("ready");
+      setStatusText("Microphone ready — press and hold to talk");
+      return false;
+    } catch {
+      setErrorState("Microphone access was denied");
+      return false;
+    }
+  }, [setErrorState]);
 
   const playResponseAudio = useCallback(
     async (audioUrl: string | undefined) => {
@@ -235,6 +255,12 @@ export default function SimulatedHardwarePage() {
       setStatusText("Uploading / thinking");
 
       try {
+        if (blob.size < 1024) {
+          setLedState("ready");
+          setStatusText("Ready");
+          return;
+        }
+
         const formData = new FormData();
         const normalizedType = (blob.type || "audio/webm").split(";")[0]?.trim().toLowerCase() || "audio/webm";
         const extension = normalizedType === "audio/mpeg"
@@ -269,12 +295,20 @@ export default function SimulatedHardwarePage() {
 
   const handleTalkStart = useCallback(async () => {
     if (requestInFlightRef.current || talkActiveRef.current) return;
+
+    const canRecordNow = await ensureMicrophoneAccess();
+    if (!canRecordNow) {
+      talkActiveRef.current = false;
+      return;
+    }
+
     talkActiveRef.current = true;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
+      recordingStartedAtRef.current = performance.now();
 
       const preferredMimeTypes = [
         "audio/mp4",
@@ -295,11 +329,13 @@ export default function SimulatedHardwarePage() {
       });
 
       recorder.addEventListener("stop", async () => {
+        const recordingDurationMs = recordingStartedAtRef.current == null ? 0 : performance.now() - recordingStartedAtRef.current;
+        recordingStartedAtRef.current = null;
         stopMediaTracks();
         mediaRecorderRef.current = null;
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
         audioChunksRef.current = [];
-        if (blob.size > 0) {
+        if (blob.size > 0 && recordingDurationMs >= 250) {
           await uploadRecording(blob);
         } else {
           setLedState("ready");
@@ -311,11 +347,12 @@ export default function SimulatedHardwarePage() {
       setLedState("recording");
       setStatusText("Recording");
     } catch {
+      recordingStartedAtRef.current = null;
       stopMediaTracks();
       talkActiveRef.current = false;
       setErrorState("Microphone access was denied");
     }
-  }, [setErrorState, stopMediaTracks, uploadRecording]);
+  }, [ensureMicrophoneAccess, setErrorState, stopMediaTracks, uploadRecording]);
 
   const handleTalkEnd = useCallback(() => {
     if (!talkActiveRef.current) return;
@@ -327,6 +364,7 @@ export default function SimulatedHardwarePage() {
       return;
     }
 
+    recordingStartedAtRef.current = null;
     stopMediaTracks();
   }, [stopMediaTracks]);
 
