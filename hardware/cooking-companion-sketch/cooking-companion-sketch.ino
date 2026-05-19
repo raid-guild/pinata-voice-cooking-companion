@@ -148,7 +148,7 @@ const int CHANNELS = 1;
 const int MAX_RECORD_SECONDS = 5;
 const int MAX_SAMPLE_COUNT = MIC_I2S_SAMPLE_RATE * MAX_RECORD_SECONDS;
 
-// 10 sec * 16,000 samples/sec * 2 bytes/sample = 320 KB
+// 5 sec * 16,000 samples/sec * 2 bytes/sample = 160 KB
 int16_t* pcmBuffer = nullptr;
 int samplesRecorded = 0;
 
