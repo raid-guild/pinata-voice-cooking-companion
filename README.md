@@ -11,6 +11,11 @@ This template is designed for agents that need to help people cook in real time:
 - support embedded clients such as ESP32-based kitchen devices
 - expose a hosted `/app` route for recipe browsing and debugging
 
+The Pinata agent template and the physical board materials are kept separate on
+purpose. Runtime agent behavior lives in `app/`, `lib/`, `workspace/`, and the
+other web/backend files. Physical device firmware and hardware reference
+materials live under `hardware/`.
+
 ## What this template gives you
 
 ### Core backend
@@ -41,6 +46,22 @@ The template includes a hosted `/app` route that works as a:
 - read-only recipe explorer
 - debugging surface for saved recipes and events
 - lightweight companion UI for the voice backend
+
+### Physical board companion
+This repo also includes companion materials for the physical countertop board in
+`hardware/`.
+
+Those files are **not** loaded by the Pinata agent and are not part of the
+Next.js runtime:
+
+- `hardware/cooking-companion-sketch/` - Arduino firmware for the ESP32-S3
+  device with microphone, speaker, buttons, and RGB status LED.
+- `hardware/reference/recipe_helper_hardware_reference.pdf` - hardware reference
+  PDF for the recipe helper prototype.
+
+The sketch is intended to be opened in the Arduino IDE or another ESP32-capable
+build environment, configured with a deployed backend URL, then flashed to the
+physical board. It talks to this template through `/app/query-audio`.
 
 ## STT / TTS
 The current implementation uses OpenAI for:
@@ -100,6 +121,13 @@ If you're modifying the voice flow, start here:
 - `lib/recipes.ts`
 - `workspace/AUDIO_QUERY_ARCHITECTURE.md`
 - `workspace/scripts/prune-generated-audio.sh`
+
+If you're modifying or wiring the physical board, start here:
+
+- `hardware/README.md`
+- `hardware/cooking-companion-sketch/README.md`
+- `hardware/cooking-companion-sketch/cooking-companion-sketch.ino`
+- `hardware/reference/recipe_helper_hardware_reference.pdf`
 
 ## Workspace docs
 
